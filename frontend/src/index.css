@@ -1,8 +1,1 @@
 @import "tailwindcss";
-
-/* Font monospace mengikuti wireframe. Milik anggota 2 saat digabung. */
-body {
-  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #000;
-  background: #fff;
-}
