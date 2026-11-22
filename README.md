@@ -26,16 +26,20 @@ uvicorn app.main:app --reload --port 8000
 
 Swagger: http://localhost:8000/docs
 
-4. Frontend (separate terminal):
+4. Web (Laravel 12 + Blade + Tailwind, PHP 8.2+, separate terminal), per PRD v1.1 Option A:
 
 ```bash
-cd frontend
+cd web
+composer install
 npm ci
 cp -n .env.example .env
-npm run dev
+php artisan key:generate
+composer run dev
 ```
 
-Open http://localhost:5173 and use the Check backend button.
+Open http://localhost:8080. Laravel has no business database; all data comes from FastAPI (`FASTAPI_BASE_URL` including `/api`, default http://127.0.0.1:8000/api) through `app/Services/FastApiClient.php`. Set `FASTAPI_USE_MOCK=true` to use sample data before the backend is ready. Details: `web/README.md`.
+
+`frontend/` is the legacy React starter kept until the migration is approved (PRD v1.1 §16.1). Do not develop new UI there.
 
 5. AI: see `ai-service/README.md`. If hosted elsewhere, set AI_SERVICE_URL to an address reachable from the backend. The bootstrap does not install AI dependencies or model weights.
 
