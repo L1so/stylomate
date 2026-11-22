@@ -1,0 +1,8 @@
+-r requirements-api.txt
+
+# Install the CUDA build of torch and torchvision first, as shown in README.md.
+accelerate==1.10.1
+diffusers==0.35.2
+huggingface-hub==0.35.3
+numpy==1.26.4
+transformers==4.56.2
