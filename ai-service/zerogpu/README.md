@@ -13,6 +13,6 @@ preload_from_hub:
 
 # StyloMate AI
 
-Private upper-body try-on for the StyloMate backend. The health endpoint reports server readiness. A generation request acquires a GPU through the Gradio queue and releases it after returning the result.
+Upper-body try-on for the StyloMate backend. The health endpoint reports server readiness. A generation request acquires a GPU through the Gradio queue and releases it after returning the result. Anonymous requests to a public deployment share the ZeroGPU quota.
 
 The service uses [CatVTON MaskFree](https://huggingface.co/zhengchong/CatVTON-MaskFree) by Zheng Chong and coauthors. The model card lists CC BY-NC-SA 4.0.

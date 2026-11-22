@@ -1,6 +1,6 @@
 # StyloMate AI Service
 
-Private upper-body virtual try-on for the StyloMate FastAPI backend. The service loads the pretrained [CatVTON MaskFree VITON-HD 512 checkpoint](https://huggingface.co/zhengchong/CatVTON-MaskFree/tree/main/vitonhd-16k-512) once and generates a 384×512 preview. The backend owns preview storage and saved history.
+Upper-body virtual try-on for the StyloMate FastAPI backend. The service loads the pretrained [CatVTON MaskFree VITON-HD 512 checkpoint](https://huggingface.co/zhengchong/CatVTON-MaskFree/tree/main/vitonhd-16k-512) once and generates a 384×512 preview. The backend owns preview storage and saved history.
 
 ## Setup
 
@@ -48,18 +48,19 @@ Use approved photos for demos and keep photos, generated previews, weights, and 
 
 ## Shared GPU on Hugging Face
 
-The shared deployment uses a private [Gradio ZeroGPU Space](https://huggingface.co/docs/hub/spaces-zerogpu). The Space loads the pinned public checkpoints at startup and allocates a GPU only while a queued generation runs. ZeroGPU quotas and startup time still apply.
+The shared deployment uses a public [Gradio ZeroGPU Space](https://huggingface.co/spaces/RedEye1611/stylomate-ai). The Space loads the pinned public checkpoints at startup and allocates a GPU only while a queued generation runs. Requests without a Hugging Face token use the shared anonymous quota. [ZeroGPU usage tiers](https://huggingface.co/docs/hub/spaces-zerogpu#usage-tiers)
 
 To publish the inference worker, upload only the files below to the Space repository root.
 
 - Copy `zerogpu/README.md` and `zerogpu/requirements.txt` as `README.md` and `requirements.txt`.
 - Copy `app.py`, `inference.py`, `prepare_assets.py`, and `zero_gpu.py` under their existing names.
 
-Give the FastAPI backend a Hugging Face read token with access to the private Space. If using the optional middleware secret, set `AI_SERVICE_TOKEN` as a Space secret and use the same value in FastAPI. Configure FastAPI with the direct `hf.space` app URL.
+Configure FastAPI with the direct `hf.space` app URL. Leave `AI_HF_SPACE_TOKEN` and `AI_SERVICE_TOKEN` empty for tokenless access to the public deployment. For a private deployment, set `AI_HF_SPACE_TOKEN` to a read token with access to that Space. If you enable the optional StyloMate shared secret, set `AI_SERVICE_TOKEN` in both services.
 
 ```dotenv
 AI_SERVICE_URL=https://redeye1611-stylomate-ai.hf.space
-AI_HF_SPACE_TOKEN=<hf-space-read-token>
+AI_HF_SPACE_TOKEN=
+AI_SERVICE_TOKEN=
 AI_HF_ZEROGPU=true
 AI_COLD_START_TIMEOUT_SECONDS=90
 ```
