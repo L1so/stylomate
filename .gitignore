@@ -36,6 +36,7 @@ uploads/
 outputs/
 generated/
 storage/
+!/web/storage/
 tmp/
 # IDE, OS, logs
 .vscode/
