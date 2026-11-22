@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Exceptions\FastApiException;
+use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +25,14 @@ class FastApiClient
         'outerwear' => 'Outer',
         'shoes' => 'Sepatu',
         'accessory' => 'Aksesori',
+    ];
+
+    // Style yang diterima FastAPI untuk Wardrobe dan Recommendations (kontrak final)
+    public const STYLES = [
+        'casual' => 'Casual',
+        'formal' => 'Formal',
+        'semi-formal' => 'Semi-formal',
+        'sporty' => 'Sporty',
     ];
 
     // Hanya gambar JPEG/PNG/WebP yang diteruskan ke browser (PRD: upload JPEG/PNG)
@@ -97,6 +107,94 @@ class FastApiClient
         $this->send('delete', "/try-on/{$id}");
     }
 
+    // ---- Wardrobe (Anggota 4) ----
+
+    public function wardrobeItems(): array
+    {
+        return array_map(fn (array $item) => $this->withWardrobeImage($item), $this->listOf($this->send('get', '/wardrobe')));
+    }
+
+    public function wardrobeItem(int $id): array
+    {
+        return $this->withWardrobeImage($this->send('get', "/wardrobe/{$id}"));
+    }
+
+    /** POST /wardrobe multipart: name, category, color, style, image */
+    public function createWardrobeItem(array $fields, UploadedFile $image): array
+    {
+        return $this->withWardrobeImage($this->upload('post', '/wardrobe', $fields, ['image' => $image]));
+    }
+
+    /** PATCH /wardrobe/{id} multipart: name, category, color, style (opsional), image (opsional) */
+    public function updateWardrobeItem(int $id, array $fields, ?UploadedFile $image = null): array
+    {
+        return $this->withWardrobeImage($this->upload('patch', "/wardrobe/{$id}", $fields, $image === null ? [] : ['image' => $image]));
+    }
+
+    /** DELETE /wardrobe/{id}; FastAPI membalas 409 bila item masih dipakai outfit atau hasil Try-On */
+    public function deleteWardrobeItem(int $id): void
+    {
+        $this->send('delete', "/wardrobe/{$id}");
+    }
+
+    // ---- Mix & Match dan Smart Outfit Curation (Anggota 4) ----
+
+    /** POST /outfits JSON {name, wardrobe_item_ids}; FastAPI menolak outfit tanpa top dan bottom */
+    public function createOutfit(string $name, array $wardrobeItemIds): array
+    {
+        return $this->send('post', '/outfits', [
+            'name' => $name,
+            'wardrobe_item_ids' => array_values(array_map('intval', $wardrobeItemIds)),
+        ]);
+    }
+
+    /** GET /recommendations?style=... : aturan rekomendasi hanya ada di FastAPI. Tiap hasil: {wardrobe_item_ids, items[]} */
+    public function recommendations(string $style): array
+    {
+        return array_map(function (array $outfit) {
+            $outfit['items'] = array_values(array_map(
+                fn ($item) => $this->withWardrobeImage(is_array($item) ? $item : []),
+                array_filter(is_array($outfit['items'] ?? null) ? $outfit['items'] : [], 'is_array')
+            ));
+
+            return $outfit;
+        }, $this->listOf($this->send('get', '/recommendations', ['style' => $style])));
+    }
+
+    // ---- Virtual Try-On (Anggota 4) ----
+
+    /**
+     * POST /try-on/generate multipart: person_image + tepat satu dari wardrobe_item_id / catalog_item_id.
+     * Memakai timeout AI yang terpisah. Tidak ada retry otomatis: generate bisa saja selesai di server walau timeout.
+     * Mengembalikan hasil FastAPI dengan image_url berupa proxy Laravel /media/try-on/{id}.
+     */
+    public function generateTryOn(UploadedFile $personImage, ?int $wardrobeItemId, ?int $catalogItemId): array
+    {
+        $fields = array_filter(
+            ['wardrobe_item_id' => $wardrobeItemId, 'catalog_item_id' => $catalogItemId],
+            fn ($value) => $value !== null
+        );
+
+        $result = $this->upload('post', '/try-on/generate', $fields, ['person_image' => $personImage], $this->aiTimeout());
+        $id = $result['id'] ?? $result['generation_id'] ?? null;
+
+        if (! is_int($id)) {
+            throw new FastApiException('Terjadi kesalahan di server. Coba lagi nanti.', 502);
+        }
+
+        $result['id'] = $id;
+        $result['generation_id'] = is_int($result['generation_id'] ?? null) ? $result['generation_id'] : $id;
+        $result['image_url'] = route('media.try-on', ['id' => $id]);
+
+        return $result;
+    }
+
+    /** POST /try-on/save JSON {generation_id} */
+    public function saveTryOn(int $generationId): array
+    {
+        return $this->send('post', '/try-on/save', ['generation_id' => $generationId]);
+    }
+
     public function tryOnImage(int $id): array
     {
         return $this->image("/try-on/{$id}/image");
@@ -135,8 +233,36 @@ class FastApiClient
 
     protected function request(string $method, string $uri, array $data = []): Response
     {
+        return $this->handle(fn () => $this->client()->{$method}($uri, $data));
+    }
+
+    // Kirim multipart (upload foto). $files: nama field => UploadedFile. Mengembalikan isi "data". $timeout dipakai untuk request AI
+    protected function upload(string $method, string $uri, array $fields, array $files, ?int $timeout = null): array
+    {
+        $response = $this->handle(function () use ($method, $uri, $fields, $files, $timeout) {
+            $pending = $this->client()->asMultipart();
+
+            if ($timeout !== null) {
+                $pending = $pending->timeout($timeout);
+            }
+
+            foreach ($files as $name => $file) {
+                $pending = $pending->attach($name, $file->get(), $file->getClientOriginalName(), ['Content-Type' => (string) $file->getMimeType()]);
+            }
+
+            return $pending->{$method}($uri, $fields);
+        });
+
+        $data = $response->json('data');
+
+        return is_array($data) ? $data : [];
+    }
+
+    // Penanganan error yang sama untuk request biasa dan multipart
+    protected function handle(Closure $call): Response
+    {
         try {
-            $response = $this->client()->{$method}($uri, $data);
+            $response = $call();
         } catch (ConnectionException) {
             // FastAPI mati atau timeout
             throw new FastApiException('Server StyloMate belum bisa dihubungi. Coba lagi sebentar lagi.', 0);
@@ -152,6 +278,12 @@ class FastApiClient
         }
 
         return $response;
+    }
+
+    // Timeout khusus AI (detik); harus lebih besar dari AI_TIMEOUT_SECONDS di FastAPI (default 300)
+    protected function aiTimeout(): int
+    {
+        return (int) config('services.fastapi.ai_timeout', 330);
     }
 
     protected function send(string $method, string $uri, array $data = []): array
@@ -189,8 +321,12 @@ class FastApiClient
             403 => 'Kamu tidak punya akses ke data ini.',
             404 => 'Data yang kamu cari tidak ditemukan.',
             409 => 'Data ini bentrok dengan data yang sudah ada.',
+            410 => 'Preview ini sudah kedaluwarsa. Buat preview baru.',
+            413 => 'Ukuran foto terlalu besar. Maksimal 10 MB.',
             422 => 'Data yang dikirim belum valid.',
             429 => 'Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.',
+            503 => 'Layanan AI sedang tidak tersedia. Coba lagi nanti.',
+            504 => 'AI terlalu lama merespons. Coba lagi sebentar lagi.',
             default => 'Terjadi kesalahan di server. Coba lagi nanti.',
         };
     }
@@ -198,6 +334,17 @@ class FastApiClient
     private function listOf(array $data): array
     {
         return array_values(array_filter($data, 'is_array'));
+    }
+
+    private function withWardrobeImage(array $item): array
+    {
+        // image_url dari backend (/api/wardrobe/{id}/image) butuh JWT, jadi browser memakai proxy Laravel ber-id
+        $id = $item['id'] ?? null;
+        $item['image_url'] = is_int($id) ? route('media.wardrobe', ['id' => $id]) : null;
+        $category = $item['category'] ?? null;
+        $item['category_label'] = self::CATEGORIES[$category] ?? (is_string($category) ? ucfirst($category) : null);
+
+        return $item;
     }
 
     private function withCatalogUrls(array $item): array

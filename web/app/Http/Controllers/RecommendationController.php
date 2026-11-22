@@ -2,11 +2,20 @@
 
 namespace App\Http\Controllers;
 
-// Placeholder Anggota 4: memanggil GET /api/recommendations?style=...
+use App\Services\FastApiClient;
+use Illuminate\Http\Request;
+
+// Smart Outfit Curation (F-06): aturan rekomendasi ada di FastAPI; Laravel hanya meneruskan style dan menampilkan hasil
 class RecommendationController extends Controller
 {
-    public function index() // GET /recommendations
+    public function index(Request $request, FastApiClient $api) // GET /recommendations?style=casual
     {
-        return view('recommendations.index');
+        $styleInput = $request->query('style');
+        $style = is_string($styleInput) && array_key_exists($styleInput, FastApiClient::STYLES) ? $styleInput : '';
+
+        $styles = FastApiClient::STYLES;
+        $outfits = $style === '' ? null : $api->recommendations($style);
+
+        return view('recommendations.index', compact('styles', 'style', 'outfits'));
     }
 }

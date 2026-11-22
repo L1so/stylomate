@@ -34,11 +34,18 @@ Route::middleware('api.token')->group(function () {
     Route::get('/media/try-on/{id}', [MediaController::class, 'tryOn'])->where('id', '[0-9]{1,9}')->name('media.try-on');
     Route::get('/media/wardrobe/{id}', [MediaController::class, 'wardrobe'])->where('id', '[0-9]{1,9}')->name('media.wardrobe');
 
-    // Halaman fashion milik Anggota 4 (controller placeholder sesuai PRD v1.1 §11.1; nama route jangan diubah)
+    // Halaman fashion milik Anggota 4 (PRD v1.1 §11.1; nama route yang sudah ada jangan diubah)
     Route::get('/wardrobe', [WardrobeController::class, 'index'])->name('wardrobe.index');
     Route::get('/wardrobe/create', [WardrobeController::class, 'create'])->name('wardrobe.create');
+    Route::post('/wardrobe', [WardrobeController::class, 'store'])->name('wardrobe.store');
     Route::get('/wardrobe/{id}', [WardrobeController::class, 'show'])->whereNumber('id')->name('wardrobe.show');
+    Route::get('/wardrobe/{id}/edit', [WardrobeController::class, 'edit'])->whereNumber('id')->name('wardrobe.edit');
+    Route::patch('/wardrobe/{id}', [WardrobeController::class, 'update'])->whereNumber('id')->name('wardrobe.update');
+    Route::delete('/wardrobe/{id}', [WardrobeController::class, 'destroy'])->whereNumber('id')->name('wardrobe.destroy');
     Route::get('/mix-match', [OutfitController::class, 'builder'])->name('mix-match.index');
+    Route::post('/outfits', [OutfitController::class, 'store'])->name('outfits.store');
     Route::get('/try-on', [TryOnController::class, 'index'])->name('try-on.index');
+    Route::post('/try-on/generate', [TryOnController::class, 'generate'])->middleware('throttle:10,1')->name('try-on.generate');
+    Route::post('/try-on/save', [TryOnController::class, 'save'])->name('try-on.save');
     Route::get('/recommendations', [RecommendationController::class, 'index'])->name('recommendations.index');
 });

@@ -21,6 +21,7 @@ Buka http://localhost:8080. FastAPI berjalan di `FASTAPI_BASE_URL` (default http
 | --- | --- |
 | `FASTAPI_BASE_URL` | Base URL FastAPI **termasuk** `/api`, misalnya `http://127.0.0.1:8000/api` |
 | `FASTAPI_TIMEOUT` | Timeout request ke FastAPI (detik) |
+| `FASTAPI_AI_TIMEOUT` | Timeout request AI Try-On (detik, default 330; harus lebih besar dari `AI_TIMEOUT_SECONDS` FastAPI) |
 | `FASTAPI_USE_MOCK` | `true` = data contoh tanpa FastAPI (akun demo `demo@stylomate.test` / `password123`); otomatis nonaktif di production |
 
 ## Integrasi FastAPI
@@ -48,3 +49,17 @@ php artisan test
 vendor/bin/pint --test
 npm run build
 ```
+
+## Fitur fashion (Anggota 4)
+
+Wardrobe, Mix & Match, Smart Outfit Curation, dan Virtual Try-On. Semua data dan aturan ada di FastAPI; Laravel hanya validasi awal, session, dan HTTP client.
+
+| Route | Fungsi |
+| --- | --- |
+| `wardrobe.index/create/store/show/edit/update/destroy` | CRUD pakaian (upload multipart JPEG/PNG maks 10 MB; foto opsional saat edit) |
+| `mix-match.index`, `outfits.store` | Pilih minimal satu atasan + satu bawahan, simpan outfit |
+| `recommendations.index` | `?style=casual\|formal\|semi-formal\|sporty` |
+| `try-on.index`, `try-on.generate`, `try-on.save` | Pilih atasan (Wardrobe/Catalog, `?catalog_item_id=`), unggah foto, preview, simpan |
+| `media.wardrobe`, `media.try-on` | Proxy gambar privat ber-id (milik core) |
+
+Method `FastApiClient` fashion: `wardrobeItems`, `wardrobeItem`, `createWardrobeItem`, `updateWardrobeItem`, `deleteWardrobeItem`, `createOutfit`, `recommendations`, `generateTryOn`, `saveTryOn` (ditambah `tryOnHistory`, `deleteTryOn`, `deleteOutfit` milik core).
