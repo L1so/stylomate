@@ -7,6 +7,8 @@
 - [ ] PR feature/frontend-core ke develop
 ## Sedang Dilakukan
 ## Sudah Dilakukan
+- [x] 2026-11-22: Homepage — garis vertikal terracotta di bawah judul hero dihapus mengikuti artboard UI/UX terbaru; 115 test lolos + build Vite sukses
+- [x] 2026-11-22: _ref/ (PRD PDF, prompt, catatan design lokal) ditambahkan ke .gitignore
 - [x] 2026-11-22: Integrasi kontrak FastAPI final — FASTAPI_BASE_URL termasuk /api (endpoint relatif, tanpa /api/api), send() membuka envelope data, login dari data.access_token, Catalog ?search= dipetakan ke q + image_url publik dari origin FastAPI, proxy gambar privat per id (/media/try-on/{id}, /media/wardrobe/{id}) menggantikan proxy path bebas, outfit memakai wardrobe_item_ids, 422 error.fields ke form, 6 kategori backend; 115 test lolos + smoke test mock
 - [x] 2026-11-22: Tahap 1–3 — Laravel 12.73 (PHP 8.2) + Tailwind v4 via Vite tanpa database, session/cache file, port 8080; layout + komponen reusable; middleware EnsureApiToken/RedirectIfApiToken, logout POST, route bernama + placeholder halaman Anggota 4
 - [x] 2026-11-22: Tahap 4–5 — service HTTP ke FastAPI + mode mock, handler error global (401/422/5xx/timeout), Masuk/Daftar (validasi, throttle 10/menit), Homepage, Catalog (index/detail, search + filter kategori F-09), Profil (akun, outfit, Try On, hapus, Unduh F-10), proxy gambar privat /media/{path}

@@ -52,3 +52,6 @@ Thumbs.db
 !/web/storage/**/
 !/web/storage/**/.gitignore
 /web/storage/*.key
+
+# Local reference material
+_ref/
