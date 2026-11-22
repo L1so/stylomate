@@ -43,3 +43,11 @@ tmp/
 .DS_Store
 Thumbs.db
 *.log
+# Laravel dependencies/runtime (keep Laravel scaffold .gitignore files tracked)
+/web/vendor/
+/web/bootstrap/cache/*.php
+!/web/storage/
+/web/storage/**
+!/web/storage/**/
+!/web/storage/**/.gitignore
+/web/storage/*.key
