@@ -9,3 +9,5 @@ Internal API (proposed): port 8001.
 - Failure: non-2xx HTTP response with safe error details.
 
 Only the main backend should call this service. Use private network/access controls in deployment. Store temporary inputs only as long as required and clean them up.
+
+Backend integration now calls this contract. If AI_SERVICE_TOKEN is configured in the backend, enforce the same bearer token here. Real inference is still owned by member 1. The backend supports only category `upper-body` and caps returned JPEG/PNG data at 10 MiB. Do not return JSON or URLs on success. Backend does not retry generation automatically.

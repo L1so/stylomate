@@ -43,7 +43,7 @@
                     <div class="flex flex-wrap items-center gap-3">
                         <form action="{{ route('try-on.save') }}" method="POST">
                             @csrf
-                            <input type="hidden" name="generation_id" value="{{ $result['id'] }}">
+                            <input type="hidden" name="generation_id" value="{{ $result['generation_id'] ?? $result['id'] }}">
                             <x-button label="Simpan Hasil" />
                         </form>
                         <x-button label="Coba Lagi" :href="route('try-on.index')" variant="secondary" type="button" />

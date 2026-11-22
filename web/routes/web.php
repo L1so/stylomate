@@ -30,11 +30,9 @@ Route::middleware('api.token')->group(function () {
     Route::get('/profile', [ProfileController::class, 'index'])->name('profile.index');
     Route::delete('/outfits/{id}', [OutfitController::class, 'destroy'])->whereNumber('id')->name('outfits.destroy');
     Route::delete('/try-on/{id}', [TryOnController::class, 'destroy'])->whereNumber('id')->name('try-on.destroy');
-    // Proxy gambar privat: diambil dari FastAPI dengan JWT di server lalu diteruskan ke browser.
-    // Route spesifik (hanya id angka) untuk gambar Anggota 4 harus di atas route /media/{path}
-    Route::get('/media/wardrobe/{id}', [MediaController::class, 'wardrobe'])->whereNumber('id')->name('media.wardrobe');
-    Route::get('/media/try-on/{id}', [MediaController::class, 'tryOn'])->whereNumber('id')->name('media.try-on');
-    Route::get('/media/{path}', [MediaController::class, 'show'])->where('path', '[A-Za-z0-9/_.\-]+')->name('media.show');
+    // Proxy gambar privat: diambil dari FastAPI dengan JWT di server lalu diteruskan ke browser
+    Route::get('/media/try-on/{id}', [MediaController::class, 'tryOn'])->where('id', '[0-9]{1,9}')->name('media.try-on');
+    Route::get('/media/wardrobe/{id}', [MediaController::class, 'wardrobe'])->where('id', '[0-9]{1,9}')->name('media.wardrobe');
 
     // Halaman fashion milik Anggota 4 (PRD v1.1 §11.1; nama route yang sudah ada jangan diubah)
     Route::get('/wardrobe', [WardrobeController::class, 'index'])->name('wardrobe.index');

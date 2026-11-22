@@ -18,14 +18,13 @@ class WardrobeItemRequest extends FormRequest
     {
         $rules = [
             'name' => ['required', 'string', 'max:100'],
-            'category' => ['required', Rule::in(array_keys(FastApiClient::WARDROBE_CATEGORIES))],
+            'category' => ['required', Rule::in(array_keys(FastApiClient::CATEGORIES))],
             'color' => ['required', 'string', 'max:30'],
             'style' => ['required', Rule::in(array_keys(FastApiClient::STYLES))],
         ];
 
-        if ($this->isMethod('post')) {
-            $rules['image'] = ['required', 'file', 'mimetypes:image/jpeg,image/png', 'mimes:jpg,jpeg,png', 'max:10240'];   // JPEG/PNG, maks 10 MB
-        }
+        // JPEG/PNG, maks 10 MB. Wajib saat tambah; saat edit boleh kosong (foto lama dipertahankan)
+        $rules['image'] = [$this->isMethod('post') ? 'required' : 'nullable', 'file', 'mimetypes:image/jpeg,image/png', 'mimes:jpg,jpeg,png', 'max:10240'];
 
         return $rules;
     }

@@ -38,7 +38,7 @@
     {{-- Kategori lingkaran adalah satu-satunya filter kategori (design system) --}}
     <nav aria-label="Kategori" class="mt-8 flex gap-6 overflow-x-auto pb-1">
         @php
-            $categoryImages = ['' => 'try-on-hasil', 'top' => 'kemeja', 'bottom' => 'kulot'];
+            $categoryImages = ['' => 'try-on-hasil', 'top' => 'kemeja', 'bottom' => 'kulot', 'dress' => 'dress', 'outerwear' => 'blazer', 'shoes' => 'sepatu', 'accessory' => 'tas'];
             $categoryLinks = ['' => 'Semua'] + $categories;
         @endphp
         @foreach ($categoryLinks as $value => $label)

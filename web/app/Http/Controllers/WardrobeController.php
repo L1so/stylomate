@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\FastApiException;
 use App\Http\Requests\WardrobeItemRequest;
 use App\Services\FastApiClient;
 use Illuminate\Http\Request;
@@ -13,11 +14,11 @@ class WardrobeController extends Controller
     {
         // Filter kategori hanya dari whitelist
         $categoryInput = $request->query('category');
-        $category = is_string($categoryInput) && array_key_exists($categoryInput, FastApiClient::WARDROBE_CATEGORIES) ? $categoryInput : '';
+        $category = is_string($categoryInput) && array_key_exists($categoryInput, FastApiClient::CATEGORIES) ? $categoryInput : '';
 
         $allItems = $api->wardrobeItems();
         $items = $category === '' ? $allItems : array_values(array_filter($allItems, fn (array $item) => ($item['category'] ?? null) === $category));
-        $categories = FastApiClient::WARDROBE_CATEGORIES;
+        $categories = FastApiClient::CATEGORIES;
 
         return view('wardrobe.index', compact('items', 'category', 'categories') + ['totalCount' => count($allItems)]);
     }
@@ -25,7 +26,7 @@ class WardrobeController extends Controller
     public function create() // GET /wardrobe/create
     {
         return view('wardrobe.create', [
-            'categories' => FastApiClient::WARDROBE_CATEGORIES,
+            'categories' => FastApiClient::CATEGORIES,
             'styles' => FastApiClient::STYLES,
         ]);
     }
@@ -52,21 +53,29 @@ class WardrobeController extends Controller
 
         return view('wardrobe.edit', [
             'item' => $item,
-            'categories' => FastApiClient::WARDROBE_CATEGORIES,
+            'categories' => FastApiClient::CATEGORIES,
             'styles' => FastApiClient::STYLES,
         ]);
     }
 
     public function update(WardrobeItemRequest $request, FastApiClient $api, int $id) // PATCH /wardrobe/{id}
     {
-        $api->updateWardrobeItem($id, $request->fields());
+        $api->updateWardrobeItem($id, $request->fields(), $request->file('image'));
 
         return redirect()->route('wardrobe.show', ['id' => $id])->with('success', 'Data pakaian diperbarui.');
     }
 
     public function destroy(FastApiClient $api, int $id) // DELETE /wardrobe/{id}
     {
-        $api->deleteWardrobeItem($id);   // FastAPI memastikan item milik user ini
+        try {
+            $api->deleteWardrobeItem($id);   // FastAPI memastikan item milik user ini
+        } catch (FastApiException $e) {
+            if ($e->status === 409) {
+                // Item masih dipakai outfit atau hasil Try-On
+                return redirect()->route('wardrobe.show', ['id' => $id])->with('error', 'Pakaian ini masih dipakai di outfit atau hasil Try On. Hapus dulu outfit atau hasil Try On tersebut.');
+            }
+            throw $e;
+        }
 
         return redirect()->route('wardrobe.index')->with('success', 'Pakaian dihapus dari Wardrobe.');
     }

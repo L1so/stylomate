@@ -5,29 +5,22 @@ namespace App\Http\Controllers;
 use App\Services\FastApiClient;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\HeaderUtils;
-use Symfony\Component\HttpFoundation\Response;
 
+// Proxy gambar privat: Laravel mengambil gambar dari endpoint FastAPI yang tetap (per id) memakai JWT di session,
+// lalu meneruskannya ke browser. Tidak ada proxy path bebas, dan token tidak pernah masuk ke HTML/URL.
 class MediaController extends Controller
 {
-    public function show(Request $request, FastApiClient $api, string $path) // GET /media/{path}
+    public function tryOn(Request $request, FastApiClient $api, int $id) // GET /media/try-on/{id}
     {
-        // Tolak ".." supaya path tidak bisa keluar folder (path traversal)
-        abort_if(str_contains($path, '..'), 404);
-
-        return $this->respond($request, $api->file($path), basename($path));
+        return $this->imageResponse($api->tryOnImage($id), $request->boolean('download') ? "stylomate-try-on-{$id}" : null);
     }
 
-    public function wardrobe(Request $request, FastApiClient $api, int $id) // GET /media/wardrobe/{id} -> FastAPI GET /wardrobe/{id}/image
+    public function wardrobe(FastApiClient $api, int $id) // GET /media/wardrobe/{id}
     {
-        return $this->respond($request, $api->wardrobeImage($id), "wardrobe-{$id}");
+        return $this->imageResponse($api->wardrobeImage($id), null);
     }
 
-    public function tryOn(Request $request, FastApiClient $api, int $id) // GET /media/try-on/{id} -> FastAPI GET /try-on/{id}/image
-    {
-        return $this->respond($request, $api->tryOnImage($id), "try-on-{$id}");
-    }
-
-    private function respond(Request $request, array $file, string $name): Response
+    private function imageResponse(array $file, ?string $downloadName)
     {
         $headers = [
             'Content-Type' => $file['type'],
@@ -36,10 +29,9 @@ class MediaController extends Controller
             'Cache-Control' => 'private, max-age=300',
         ];
 
-        if ($request->boolean('download')) {
-            // attachment = browser mengunduh file, bukan menampilkannya
-            $extension = $file['type'] === 'image/jpeg' ? 'jpg' : substr($file['type'], 6);
-            $headers['Content-Disposition'] = HeaderUtils::makeDisposition('attachment', 'stylomate-'.(str_contains($name, '.') ? $name : "{$name}.{$extension}"));
+        if ($downloadName !== null) {
+            // attachment = browser mengunduh file, bukan menampilkannya (F-10)
+            $headers['Content-Disposition'] = HeaderUtils::makeDisposition('attachment', $downloadName.'.'.FastApiClient::IMAGE_TYPES[$file['type']]);
         }
 
         return response($file['content'], 200, $headers);

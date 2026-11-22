@@ -40,15 +40,23 @@ class FashionMockFlowTest extends TestCase
             ->assertRedirect(route('wardrobe.show', ['id' => 16]));
         $this->get('/wardrobe/16')->assertSee('Hoodie Hitam')->assertDontSee('Hoodie Abu');
 
-        // hapus
+        // hapus (item baru belum dipakai outfit/try-on)
         $this->delete('/wardrobe/16')->assertRedirect(route('wardrobe.index'));
         $this->get('/wardrobe/16')->assertNotFound();
+    }
+
+    public function test_deleting_wardrobe_item_used_by_an_outfit_is_refused_like_the_real_backend(): void
+    {
+        $this->delete('/wardrobe/11')
+            ->assertRedirect(route('wardrobe.show', ['id' => 11]))
+            ->assertSessionHas('error');
+
+        $this->get('/wardrobe/11')->assertOk();
     }
 
     public function test_mock_serves_private_wardrobe_and_try_on_images(): void
     {
         $this->get('/media/wardrobe/11')->assertOk()->assertHeader('Content-Type', 'image/png');
-        $this->get('/media/wardrobe/999')->assertNotFound();
         $this->get('/media/try-on/1')->assertOk()->assertHeader('Content-Type', 'image/png');
     }
 
@@ -71,7 +79,7 @@ class FashionMockFlowTest extends TestCase
 
     public function test_recommendations_by_style_and_empty_state(): void
     {
-        $this->get('/recommendations?style=casual')->assertOk()->assertSee('Kaos Garis')->assertSee('Jeans Denim');
+        $this->get('/recommendations?style=casual')->assertOk()->assertSee('Kaos Garis')->assertSee('Jeans Denim')->assertSee('Pilihan 1');
         $this->get('/recommendations?style=sporty')->assertOk()->assertSee('Belum ada rekomendasi');
     }
 
@@ -81,14 +89,17 @@ class FashionMockFlowTest extends TestCase
 
         $this->post('/try-on/generate', ['item' => 'catalog:1', 'person_image' => UploadedFile::fake()->image('aku.png')])
             ->assertRedirect(route('try-on.index'))
-            ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 1000);
+            ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 3 && $result['generation_id'] === 3);
 
-        $this->get('/media/try-on/1000')->assertOk();
+        // Preview belum masuk riwayat (saved=false) sampai disimpan
+        $this->get('/profile?tab=try-on')->assertOk()->assertDontSee('/media/try-on/3', false);
 
-        $this->post('/try-on/save', ['generation_id' => 1000])
+        $this->get('/media/try-on/3')->assertOk();
+
+        $this->post('/try-on/save', ['generation_id' => 3])
             ->assertRedirect(route('profile.index', ['tab' => 'try-on']));
 
-        $this->get('/profile?tab=try-on')->assertOk()->assertSee('/media/try-on/1000.png', false);
+        $this->get('/profile?tab=try-on')->assertOk()->assertSee('/media/try-on/3', false);
     }
 
     public function test_try_on_generate_with_wardrobe_top(): void
@@ -106,9 +117,18 @@ class FashionMockFlowTest extends TestCase
             ->assertSessionHasErrors('wardrobe_item_id');
     }
 
+    public function test_unsaved_preview_can_be_deleted_via_existing_route(): void
+    {
+        $this->post('/try-on/generate', ['item' => 'catalog:1', 'person_image' => UploadedFile::fake()->image('aku.png')]);
+
+        $this->delete('/try-on/3')->assertRedirect(route('profile.index'));
+        // Form POST yang gagal (404 dari FastAPI) kembali ke halaman sebelumnya dengan pesan error
+        $this->post('/try-on/save', ['generation_id' => 3])->assertRedirect()->assertSessionHas('error', 'Data yang kamu cari tidak ditemukan.');
+    }
+
     public function test_cannot_save_unknown_generation(): void
     {
-        $this->post('/try-on/save', ['generation_id' => 4242])->assertNotFound();
+        $this->post('/try-on/save', ['generation_id' => 4242])->assertRedirect()->assertSessionHas('error', 'Data yang kamu cari tidak ditemukan.');
     }
 
     public function test_mock_requires_login_and_scopes_data_per_user(): void

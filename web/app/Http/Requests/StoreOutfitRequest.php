@@ -15,7 +15,7 @@ class StoreOutfitRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:100'],
-            'wardrobe_item_ids' => ['required', 'array', 'min:2', 'max:12'],
+            'wardrobe_item_ids' => ['required', 'array', 'min:2', 'max:20'],
             'wardrobe_item_ids.*' => ['integer', 'min:1', 'distinct'],
         ];
     }
@@ -28,7 +28,7 @@ class StoreOutfitRequest extends FormRequest
             'wardrobe_item_ids.required' => 'Pilih minimal satu atasan dan satu bawahan.',
             'wardrobe_item_ids.array' => 'Pilihan pakaian tidak valid.',
             'wardrobe_item_ids.min' => 'Pilih minimal satu atasan dan satu bawahan.',
-            'wardrobe_item_ids.max' => 'Satu outfit maksimal 12 pakaian.',
+            'wardrobe_item_ids.max' => 'Satu outfit maksimal 20 pakaian.',
             'wardrobe_item_ids.*.integer' => 'Pilihan pakaian tidak valid.',
             'wardrobe_item_ids.*.min' => 'Pilihan pakaian tidak valid.',
             'wardrobe_item_ids.*.distinct' => 'Pilihan pakaian tidak valid.',

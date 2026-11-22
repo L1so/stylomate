@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\FastApiClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
@@ -29,13 +30,13 @@ class TryOnTest extends TestCase
         return ['id' => 3, 'name' => 'Sweater Rajut', 'brand' => 'Brand A', 'category' => 'top', 'color' => 'cokelat', 'style' => 'casual', 'image_path' => null, 'product_url' => null];
     }
 
-    private function fakePickers(array $catalogItem = null): void
+    private function fakePickers(?array $catalogItem = null): void
     {
         $catalogItem ??= $this->catalogTop();
 
         Http::fake([
-            '*/catalog/3' => Http::response($catalogItem),
-            '*/catalog/5' => Http::response(['id' => 5, 'name' => 'Kulot', 'category' => 'bottom'] + $catalogItem),
+            '*/catalog/3' => Http::response(['data' => $catalogItem]),
+            '*/catalog/5' => Http::response(['data' => ['id' => 5, 'name' => 'Kulot', 'category' => 'bottom'] + $catalogItem]),
             '*/catalog*' => Http::response(['data' => [$this->catalogTop()]]),
             '*/wardrobe' => Http::response(['data' => [
                 ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal'],
@@ -124,7 +125,7 @@ class TryOnTest extends TestCase
     {
         $this->fakePickers();
 
-        $this->withSession(['api_token' => 'jwt-1', 'try_on_result' => ['id' => 77, 'image_url' => url('/media/try-on/77'), 'item' => 'catalog:3']])
+        $this->withSession(['api_token' => 'jwt-1', 'try_on_result' => ['id' => 77, 'generation_id' => 77, 'image_url' => url('/media/try-on/77'), 'item' => 'catalog:3']])
             ->get('/try-on')
             ->assertOk()
             ->assertSee('Hasil Try On')
@@ -136,11 +137,12 @@ class TryOnTest extends TestCase
 
     public function test_generate_with_catalog_item_sends_multipart_and_redirects_with_result(): void
     {
-        Http::fake(['*/try-on/generate' => Http::response(['data' => ['id' => 77, 'status' => 'completed']], 201)]);
+        Http::fake(['*/try-on/generate' => Http::response(['data' => ['id' => 77, 'generation_id' => 77, 'saved' => false, 'image_url' => '/api/try-on/77/image', 'wardrobe_item_id' => null, 'catalog_item_id' => 3]], 201)]);
 
         $this->asUser()->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 77
+                && $result['generation_id'] === 77
                 && str_ends_with($result['image_url'], '/media/try-on/77')
                 && $result['item'] === 'catalog:3');
 
@@ -233,7 +235,7 @@ class TryOnTest extends TestCase
 
     public function test_generate_response_without_id_is_treated_as_server_error(): void
     {
-        Http::fake(['*/try-on/generate' => Http::response(['data' => ['status' => 'completed']])]);
+        Http::fake(['*/try-on/generate' => Http::response(['data' => ['saved' => false]])]);
 
         $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
             ->assertSessionHas('error');
@@ -243,7 +245,7 @@ class TryOnTest extends TestCase
     {
         config(['services.fastapi.timeout' => 10, 'services.fastapi.ai_timeout' => 120]);
 
-        $client = new class extends \App\Services\FastApiClient
+        $client = new class extends FastApiClient
         {
             public function aiSeconds(): int
             {

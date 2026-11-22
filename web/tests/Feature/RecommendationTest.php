@@ -34,20 +34,21 @@ class RecommendationTest extends TestCase
 
     public function test_style_is_forwarded_to_fastapi_and_results_are_shown(): void
     {
+        // Bentuk backend: {data: [{wardrobe_item_ids, items[]}], meta: {style, message}}
         Http::fake(['*/recommendations*' => Http::response(['data' => [[
-            'name' => 'Santai harian',
-            'reason' => 'Warna netral dan sama-sama casual.',
+            'wardrobe_item_ids' => [7, 6],
             'items' => [
-                ['id' => 7, 'name' => 'Kaos Garis', 'category' => 'top'],
-                ['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom'],
+                ['id' => 7, 'name' => 'Kaos Garis', 'category' => 'top', 'color' => 'putih', 'style' => 'casual'],
+                ['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom', 'color' => 'biru', 'style' => 'casual'],
             ],
-        ]]])]);
+        ]], 'meta' => ['style' => 'casual', 'message' => null]])]);
 
         $this->asUser()->get('/recommendations?style=casual')
             ->assertOk()
             ->assertSee('Kaos Garis')
             ->assertSee('Jeans Biru')
-            ->assertSee('Warna netral dan sama-sama casual.')
+            ->assertSee('Pilihan 1')
+            ->assertSee('name="wardrobe_item_ids[]" value="7"', false)
             ->assertSee('/media/wardrobe/7', false)
             ->assertSee('Simpan sebagai Outfit');
 
@@ -58,7 +59,7 @@ class RecommendationTest extends TestCase
 
     public function test_empty_result_shows_empty_state(): void
     {
-        Http::fake(['*/recommendations*' => Http::response(['data' => []])]);
+        Http::fake(['*/recommendations*' => Http::response(['data' => [], 'meta' => ['style' => 'formal', 'message' => 'Add a top and bottom matching this style']])]);
 
         $this->asUser()->get('/recommendations?style=formal')->assertOk()->assertSee('Belum ada rekomendasi');
     }

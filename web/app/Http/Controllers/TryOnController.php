@@ -15,7 +15,7 @@ class TryOnController extends Controller
         $selected = old('item') ?? (is_array($result) ? ($result['item'] ?? null) : null);
         $notice = null;
 
-        $catalogTops = $api->catalog(['category' => 'top']);   // MVP: hanya kategori top
+        $catalogTops = $api->catalog('', 'top');   // MVP: hanya kategori top
         $wardrobeTops = array_values(array_filter($api->wardrobeItems(), fn (array $item) => ($item['category'] ?? null) === 'top'));
 
         // Tombol "Try On" di Catalog / Wardrobe membawa id item lewat query string
@@ -68,6 +68,7 @@ class TryOnController extends Controller
         // PRG: hasil dibawa lewat flash session supaya refresh tidak mengirim ulang foto
         return redirect()->route('try-on.index')->with('try_on_result', [
             'id' => $result['id'],
+            'generation_id' => $result['generation_id'],
             'image_url' => $result['image_url'],
             'item' => $request->validated('item'),
         ]);

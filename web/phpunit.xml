@@ -33,6 +33,6 @@
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="FASTAPI_USE_MOCK" value="false"/>
-        <env name="FASTAPI_BASE_URL" value="http://fastapi.test"/>
+        <env name="FASTAPI_BASE_URL" value="http://fastapi.test/api"/>
     </php>
 </phpunit>

@@ -13,7 +13,7 @@ class OutfitController extends Controller
 
         // Kelompokkan per kategori (atasan dan bawahan paling atas); kategori kosong tidak ditampilkan
         $groups = [];
-        foreach (FastApiClient::WARDROBE_CATEGORIES as $key => $label) {
+        foreach (FastApiClient::CATEGORIES as $key => $label) {
             $inGroup = array_values(array_filter($items, fn (array $item) => ($item['category'] ?? null) === $key));
             if ($inGroup !== []) {
                 $groups[$key] = ['label' => $label, 'items' => $inGroup];

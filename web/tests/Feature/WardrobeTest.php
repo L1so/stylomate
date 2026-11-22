@@ -20,7 +20,7 @@ class WardrobeTest extends TestCase
 
     private function item(array $override = []): array
     {
-        return $override + ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal', 'created_at' => '2026-11-20T08:00:00Z'];
+        return $override + ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal', 'image_url' => '/api/wardrobe/5/image'];
     }
 
     private function validFields(array $override = []): array
@@ -203,10 +203,10 @@ class WardrobeTest extends TestCase
             ->assertOk()
             ->assertSee('value="Kemeja Putih"', false)
             ->assertSee('name="_method" value="PATCH"', false)
-            ->assertDontSee('type="file"', false);
+            ->assertSee('Ganti foto (opsional)');
     }
 
-    public function test_update_sends_patch_json_and_redirects(): void
+    public function test_update_sends_patch_multipart_without_image_and_redirects(): void
     {
         Http::fake(['*/wardrobe/5' => Http::response(['data' => $this->item(['name' => 'Kemeja Baru'])])]);
 
@@ -214,9 +214,40 @@ class WardrobeTest extends TestCase
             ->assertRedirect(route('wardrobe.show', ['id' => 5]))
             ->assertSessionHas('success');
 
+        // Kontrak backend: PATCH /wardrobe/{id} berupa multipart (Form), foto opsional
         Http::assertSent(fn (Request $request) => $request->method() === 'PATCH'
             && str_ends_with($request->url(), '/wardrobe/5')
-            && $request->data() === ['name' => 'Kemeja Baru', 'category' => 'top', 'color' => 'putih', 'style' => 'formal']);
+            && $request->isMultipart()
+            && str_contains($request->body(), 'Kemeja Baru')
+            && ! str_contains($request->body(), 'name="image"'));
+    }
+
+    public function test_update_can_replace_the_photo(): void
+    {
+        Http::fake(['*/wardrobe/5' => Http::response(['data' => $this->item()])]);
+
+        $this->asUser()->patch('/wardrobe/5', $this->validFields() + ['image' => UploadedFile::fake()->image('baru.png')])
+            ->assertSessionHasNoErrors();
+
+        Http::assertSent(fn (Request $request) => $request->isMultipart() && str_contains($request->body(), 'name="image"'));
+    }
+
+    public function test_update_rejects_invalid_replacement_photo(): void
+    {
+        $this->asUser()->from('/wardrobe/5/edit')
+            ->patch('/wardrobe/5', $this->validFields() + ['image' => UploadedFile::fake()->create('baru.pdf', 10, 'application/pdf')])
+            ->assertSessionHasErrors('image');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_destroy_item_still_used_shows_safe_message_instead_of_error_page(): void
+    {
+        Http::fake(['*/wardrobe/5' => Http::response(['error' => ['message' => 'Delete related outfits and try-on results first']], 409)]);
+
+        $this->asUser()->delete('/wardrobe/5')
+            ->assertRedirect(route('wardrobe.show', ['id' => 5]))
+            ->assertSessionHas('error', fn (string $message) => str_contains($message, 'masih dipakai'));
     }
 
     public function test_update_validates_fields_before_calling_fastapi(): void

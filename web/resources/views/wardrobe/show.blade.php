@@ -24,8 +24,6 @@
                 <x-chip :label="ucfirst($item['style'] ?? '-')" />
             </div>
 
-            <p class="text-sm text-taupe">Ditambahkan <x-date :value="$item['created_at'] ?? null" /></p>
-
             <div class="mt-4 flex flex-wrap items-center gap-3">
                 @if (($item['category'] ?? null) === 'top')
                     <x-button label="Coba dengan Try On" :href="route('try-on.index', ['wardrobe_item_id' => $item['id']])" type="button" />

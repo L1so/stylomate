@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -10,6 +11,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     ai_service_url: str = "http://localhost:8001"
     ai_timeout_seconds: int = 300
+    storage_dir: str = str(ROOT_DIR / "storage" / "images")
+    ai_service_token: str = ""
+    @field_validator('jwt_secret_key')
+    @classmethod
+    def strong_secret(cls, value):
+        if len(value) < 32:
+            raise ValueError('JWT_SECRET_KEY must contain at least 32 characters')
+        return value
+
     model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
 
 settings = Settings()

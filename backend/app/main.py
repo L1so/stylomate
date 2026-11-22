@@ -1,17 +1,24 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .database import engine
 
 app = FastAPI(title="StyloMate API", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.routers.api import router
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+app.include_router(router)
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request, exc):
+    return JSONResponse({'error': {'message': exc.detail}}, status_code=exc.status_code, headers=exc.headers)
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    # Do not echo passwords, tokens or uploaded data in validation responses.
+    fields = [{'field': '.'.join(str(p) for p in error['loc'][1:]), 'message': error['msg']} for error in exc.errors()]
+    return JSONResponse({'error': {'message': 'Validation failed', 'fields': fields}}, status_code=422)
 
 @app.get("/")
 def root():

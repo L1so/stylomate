@@ -64,13 +64,12 @@ class FashionMediaTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_non_numeric_id_does_not_match_the_specific_wardrobe_route(): void
+    public function test_non_numeric_or_path_like_ids_are_not_proxied(): void
     {
-        $route = app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/media/wardrobe/abc'));
+        foreach (['/media/wardrobe/abc', '/media/wardrobe/5.png', '/media/try-on/../secret', '/media/wardrobe/5/image'] as $uri) {
+            $this->withSession(['api_token' => 'jwt-1'])->get($uri)->assertNotFound();
+        }
 
-        // Hanya angka yang masuk route spesifik; selain itu jatuh ke route /media/{path} milik Anggota 2
-        $this->assertSame('media.show', $route->getName());
-        $this->assertSame('media.wardrobe', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/media/wardrobe/12'))->getName());
-        $this->assertSame('media.try-on', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/media/try-on/12'))->getName());
+        Http::assertNothingSent();
     }
 }

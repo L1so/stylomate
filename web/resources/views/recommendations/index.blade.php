@@ -23,7 +23,7 @@
             <x-empty-state title="Belum ada rekomendasi" message="Belum ada outfit yang cocok untuk style ini. Tambahkan atasan dan bawahan ke Wardrobe supaya rekomendasi bisa dibuat." action-label="Tambah Pakaian" :action-url="route('wardrobe.create')" />
         @else
             <ul class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                @foreach ($outfits as $outfit)
+                @foreach ($outfits as $index => $outfit)
                     <li class="flex flex-col gap-4 rounded-md bg-white p-4 shadow-xs">
                         <div class="grid grid-cols-2 gap-3">
                             @foreach ($outfit['items'] ?? [] as $piece)
@@ -39,12 +39,11 @@
                                 </div>
                             @endforeach
                         </div>
-                        @if (!empty($outfit['reason']))
-                            <p class="text-sm text-taupe">{{ $outfit['reason'] }}</p>
-                        @endif
+                        <h2 class="font-serif text-xl font-medium italic">Pilihan {{ $index + 1 }} · {{ $styles[$style] ?? ucfirst($style) }}</h2>
                         {{-- Simpan hasil rekomendasi sebagai outfit lewat endpoint POST /outfits yang sama --}}
                         @php
-                            $ids = collect($outfit['items'] ?? [])->pluck('id')->filter()->values()->all();
+                            // Backend mengirim wardrobe_item_ids dan items[]; nama outfit dibuat dari style dan nomor pilihan
+                            $ids = array_values(array_filter($outfit['wardrobe_item_ids'] ?? [], 'is_int'));
                         @endphp
                         @if (count($ids) >= 2)
                             <form action="{{ route('outfits.store') }}" method="POST" class="flex flex-col gap-3">
@@ -52,7 +51,7 @@
                                 @foreach ($ids as $id)
                                     <input type="hidden" name="wardrobe_item_ids[]" value="{{ $id }}">
                                 @endforeach
-                                <input type="hidden" name="name" value="{{ \Illuminate\Support\Str::limit($outfit['name'] ?? 'Outfit '.($styles[$style] ?? ''), 100, '') }}">
+                                <input type="hidden" name="name" value="{{ ($styles[$style] ?? ucfirst($style)).' pilihan '.($index + 1) }}">
                                 <x-button label="Simpan sebagai Outfit" variant="secondary" />
                             </form>
                         @endif
