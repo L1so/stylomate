@@ -19,7 +19,7 @@
                 @endif
             </h2>
             <div class="flex flex-wrap gap-1">
-                <x-chip :label="$item['category'] ?? '-'" />
+                <x-chip :label="$item['category_label'] ?? $item['category'] ?? '-'" />
                 <x-chip :label="$item['color'] ?? '-'" />
                 <x-chip :label="$item['style'] ?? '-'" />
             </div>
