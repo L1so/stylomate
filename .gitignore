@@ -44,3 +44,5 @@ tmp/
 .DS_Store
 Thumbs.db
 *.log
+# Local reference material
+_ref/

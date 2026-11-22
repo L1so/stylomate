@@ -40,7 +40,6 @@
             <div class="flex min-w-0 flex-[1_1_440px] flex-col items-center gap-6 text-center">
                 <p class="text-xs font-semibold uppercase tracking-[0.12em] text-terracotta">Sustainable fashion berbasis AI</p>
                 <h1 class="font-serif text-[40px] font-normal italic leading-[44px] tracking-[-0.02em] md:text-[64px] md:leading-[72px] max-w-[520px]">Coba dulu, pakai lebih lama.</h1>
-                <span aria-hidden="true" class="h-[72px] w-0.5 bg-terracotta"></span>
                 <p class="text-lg leading-7 text-taupe max-w-[460px]">Unggah fotomu, padukan isi lemarimu, lalu lihat hasilnya sebelum memutuskan. Lebih yakin memilih, lebih jarang membeli.</p>
                 {{-- Tombol Get Started (Mulai Sekarang), Masuk, Daftar sesuai PRD 6.1 --}}
                 <div class="mt-2 flex flex-wrap justify-center gap-3">
