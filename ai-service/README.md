@@ -46,6 +46,36 @@ Register or log in, upload a real photo of a top to Wardrobe, select that top in
 
 Use approved photos for demos and keep photos, generated previews, weights, and tokens out of Git. The service uses in-memory image processing and closes the multipart uploads at the end of the request.
 
+## Shared GPU on Hugging Face
+
+The shared deployment uses a private [Gradio ZeroGPU Space](https://huggingface.co/docs/hub/spaces-zerogpu). The Space loads the pinned public checkpoints at startup and allocates a GPU only while a queued generation runs. ZeroGPU quotas and startup time still apply.
+
+To publish the inference worker, upload only the files below to the Space repository root.
+
+- Copy `zerogpu/README.md` and `zerogpu/requirements.txt` as `README.md` and `requirements.txt`.
+- Copy `app.py`, `inference.py`, `prepare_assets.py`, and `zero_gpu.py` under their existing names.
+
+Give the FastAPI backend a Hugging Face read token with access to the private Space. If using the optional middleware secret, set `AI_SERVICE_TOKEN` as a Space secret and use the same value in FastAPI. Configure FastAPI with the direct `hf.space` app URL.
+
+```dotenv
+AI_SERVICE_URL=https://redeye1611-stylomate-ai.hf.space
+AI_HF_SPACE_TOKEN=<hf-space-read-token>
+AI_HF_ZEROGPU=true
+AI_COLD_START_TIMEOUT_SECONDS=90
+```
+
+In Laravel, enable visit-triggered warmup and allow enough time for the backend cold-start wait plus inference.
+
+```dotenv
+FASTAPI_USE_MOCK=false
+FASTAPI_AI_WARMUP=true
+FASTAPI_AI_TIMEOUT=420
+```
+
+A visible, signed-in page triggers one background wake-up request. New page visits or returning to the tab can request warmup again after the cooldown. There is no periodic polling while the user is idle. If someone submits a photo during cold start, FastAPI checks readiness before it sends the image pair to the worker. This retries the health check only, so each submission sends at most one inference request.
+
+When the host goes to sleep, opening a signed-in page asks it to wake. Once ready, use Try-On and save the preview to Profile. The Gradio queue acquires the GPU for that job and releases it on completion. The application's idle sleep is managed by Hugging Face.
+
 ## API tests
 
 ```bash

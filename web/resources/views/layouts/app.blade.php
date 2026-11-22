@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @if (session()->has('api_token') && config('services.fastapi.ai_warmup') && ! config('services.fastapi.use_mock'))
+        <meta name="ai-warmup-url" content="{{ route('try-on.warmup', absolute: false) }}">
+    @endif
     <title>@hasSection('title')@yield('title') · @endif StyloMate</title>
     <meta name="description" content="@yield('description', 'StyloMate membantu kamu mencoba pakaian secara virtual, memadukan isi lemari, dan mendapat rekomendasi outfit.')">
     {{-- Halaman privat memakai @section('noindex', true) agar tidak diindex mesin pencari --}}

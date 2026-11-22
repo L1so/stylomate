@@ -1,4 +1,6 @@
+from base64 import b64encode
 from io import BytesIO
+import json
 from datetime import datetime, timedelta, timezone
 import jwt
 import httpx
@@ -36,6 +38,79 @@ def test_auth_validation_and_expiry():
     assert client.get('/api/auth/me', headers={'Authorization': 'Bearer ' + token}).status_code == 401
     invalid = client.post('/api/auth/register', json={'name': 'A', 'email': 'invalid', 'password': 'secret'})
     assert invalid.status_code == 422 and 'secret' not in invalid.text
+
+def test_try_on_wakes_private_host_and_waits_before_upload(monkeypatch):
+    headers = auth()
+    identity = add(headers)
+    monkeypatch.setattr(settings, 'ai_hf_space_token', 'gateway-test')
+    monkeypatch.setattr(settings, 'ai_service_token', 'worker-test')
+    monkeypatch.setattr(settings, 'ai_cold_start_timeout_seconds', 10)
+    monkeypatch.setattr('app.services.ai.sleep', lambda _: None)
+    original = httpx.Client
+    requests = []
+    responses = iter([
+        httpx.Response(503),
+        httpx.Response(200, text='Space is starting'),
+        httpx.Response(200, json={'status': 'ok'}),
+        httpx.Response(200, content=picture()),
+    ])
+
+    def respond(request):
+        requests.append((request.method, request.url.path))
+        assert request.headers['Authorization'] == 'Bearer gateway-test'
+        assert request.headers['X-StyloMate-Token'] == 'worker-test'
+        return next(responses)
+
+    monkeypatch.setattr('app.routers.api.httpx.Client',
+                        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs))
+    assert client.post('/api/try-on/warmup').status_code == 401
+    assert client.post('/api/try-on/warmup', headers=headers).status_code == 204
+    response = client.post('/api/try-on/generate', headers=headers, data={'wardrobe_item_id': identity},
+                           files={'person_image': ('p.png', picture(), 'image/png')})
+    assert response.status_code == 201, response.text
+    assert requests == [('GET', '/health')] * 3 + [('POST', '/generate')]
+
+def test_try_on_does_not_upload_on_failed_host_auth(monkeypatch):
+    headers = auth()
+    identity = add(headers)
+    monkeypatch.setattr(settings, 'ai_cold_start_timeout_seconds', 10)
+    original = httpx.Client
+
+    def respond(request):
+        assert request.method == 'GET' and request.url.path == '/health'
+        return httpx.Response(401)
+
+    monkeypatch.setattr('app.routers.api.httpx.Client',
+                        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs))
+    response = client.post('/api/try-on/generate', headers=headers, data={'wardrobe_item_id': identity},
+                           files={'person_image': ('p.png', picture(), 'image/png')})
+    assert response.status_code == 503
+
+def test_try_on_zerogpu_submits_once_and_reads_completion(monkeypatch):
+    headers = auth()
+    identity = add(headers)
+    monkeypatch.setattr(settings, 'ai_hf_zerogpu', True)
+    monkeypatch.setattr(settings, 'ai_hf_space_token', 'gateway-test')
+    original = httpx.Client
+    requests = []
+    endpoint = '/gradio_api/call/generate'
+    output = b64encode(picture()).decode()
+
+    def respond(request):
+        assert request.headers['Authorization'] == 'Bearer gateway-test'
+        requests.append((request.method, request.url.path))
+        if request.method == 'POST':
+            person, garment, category = json.loads(request.content)['data']
+            assert person and garment and category == 'upper-body'
+            return httpx.Response(200, json={'event_id': 'queue-test-1'})
+        return httpx.Response(200, text=f'event: heartbeat\ndata: null\n\nevent: complete\ndata: ["{output}"]\n\n')
+
+    monkeypatch.setattr('app.routers.api.httpx.Client',
+                        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs))
+    response = client.post('/api/try-on/generate', headers=headers, data={'wardrobe_item_id': identity},
+                           files={'person_image': ('p.png', picture(), 'image/png')})
+    assert response.status_code == 201, response.text
+    assert requests == [('POST', endpoint), ('GET', endpoint + '/queue-test-1')]
 
 def test_wardrobe_ownership_upload_and_update():
     alice, bob = auth(), auth('bob@example.com')

@@ -189,6 +189,15 @@ class FastApiClient
         return $result;
     }
 
+    public function warmTryOn(): void
+    {
+        try {
+            $this->client()->connectTimeout(2)->timeout(5)->post('/try-on/warmup');
+        } catch (ConnectionException) {
+            // Warmup is best effort. Generate checks readiness before sending its images.
+        }
+    }
+
     /** POST /try-on/save JSON {generation_id} */
     public function saveTryOn(int $generationId): array
     {

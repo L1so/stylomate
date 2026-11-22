@@ -45,6 +45,7 @@ Route::middleware('api.token')->group(function () {
     Route::get('/mix-match', [OutfitController::class, 'builder'])->name('mix-match.index');
     Route::post('/outfits', [OutfitController::class, 'store'])->name('outfits.store');
     Route::get('/try-on', [TryOnController::class, 'index'])->name('try-on.index');
+    Route::post('/try-on/warmup', [TryOnController::class, 'warmup'])->name('try-on.warmup');
     Route::post('/try-on/generate', [TryOnController::class, 'generate'])->middleware('throttle:10,1')->name('try-on.generate');
     Route::post('/try-on/save', [TryOnController::class, 'save'])->name('try-on.save');
     Route::get('/recommendations', [RecommendationController::class, 'index'])->name('recommendations.index');

@@ -1,5 +1,26 @@
 import './bootstrap';
 
+const warmupUrl = document.querySelector('meta[name="ai-warmup-url"]')?.content;
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+if (warmupUrl && csrfToken) {
+    let lastWarmup = 0;
+    const warmAiOnVisit = () => {
+        if (document.visibilityState !== 'visible' || Date.now() - lastWarmup < 30_000) {
+            return;
+        }
+        lastWarmup = Date.now();
+        fetch(warmupUrl, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': csrfToken },
+            keepalive: true,
+        }).catch(() => {});
+    };
+
+    window.addEventListener('pageshow', warmAiOnVisit);
+    document.addEventListener('visibilitychange', warmAiOnVisit);
+}
+
 // Konfirmasi hapus (form[data-confirm]) dan indikator loading (form[data-loading]) tanpa library tambahan
 document.addEventListener('submit', (event) => {
     const form = event.target;

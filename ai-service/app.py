@@ -21,8 +21,7 @@ MAX_PIXELS = 20_000_000
 logger = logging.getLogger("uvicorn.error")
 
 
-def decode_image(upload: UploadFile) -> Image.Image:
-    data = upload.file.read(MAX_BYTES + 1)
+def decode_image_data(data: bytes) -> Image.Image:
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "Image exceeds 10 MiB.")
 
@@ -33,6 +32,10 @@ def decode_image(upload: UploadFile) -> Image.Image:
             return ImageOps.exif_transpose(image).convert("RGB")
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
         raise HTTPException(422, "Upload a valid JPEG or PNG image up to 20 megapixels.") from None
+
+
+def decode_image(upload: UploadFile) -> Image.Image:
+    return decode_image_data(upload.file.read(MAX_BYTES + 1))
 
 
 def create_app(
@@ -53,9 +56,11 @@ def create_app(
 
     def authorize(request: Request) -> None:
         if token:
-            provided = request.headers.get("authorization", "")
-            scheme, _, credential = provided.partition(" ")
-            if scheme.lower() != "bearer" or not compare_digest(credential.encode(), token.encode()):
+            credential = request.headers.get("X-StyloMate-Token")
+            if credential is None:
+                scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+                credential = value if scheme.lower() == "bearer" else ""
+            if not compare_digest(credential.encode(), token.encode()):
                 raise HTTPException(401, "Invalid service credentials.", {"WWW-Authenticate": "Bearer"})
 
     app = FastAPI(title="StyloMate AI", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -67,6 +72,7 @@ def create_app(
             content={"detail": "Provide person_image, garment_image, and category=upper-body."},
         )
 
+    @app.get("/")
     @app.get("/health")
     def health(request: Request) -> dict[str, str]:
         if not callable(getattr(request.app.state, "generate", None)):

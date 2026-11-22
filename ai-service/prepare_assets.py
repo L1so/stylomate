@@ -44,24 +44,29 @@ ASSETS = (
 )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
-    args = parser.parse_args()
-
+def prepare_assets(model_dir: Path) -> None:
     for folder, repo, kind, revision, files in ASSETS:
+        target = model_dir / folder
+        if all((target / name).is_file() for name in files):
+            continue
         print(f"Preparing {folder} from {repo}@{revision}", flush=True)
-        target = args.model_dir / folder
         snapshot_download(
             repo_id=repo,
             repo_type=kind,
             revision=revision,
             allow_patterns=list(files),
             local_dir=target,
+            token=False,
         )
         missing = [name for name in files if not (target / name).is_file()]
         if missing:
             raise FileNotFoundError(f"Incomplete {folder} download: {', '.join(missing)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
+    prepare_assets(parser.parse_args().model_dir)
 
 
 if __name__ == "__main__":
