@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models import User, WardrobeItem, CatalogItem, Outfit, OutfitItem, TryOnResult
 from app.schemas import Register, Login, OutfitCreate, SaveResult, Category, Style
 from app.services.security import current_user, passwords, issue_token
+from app.services.ai import ai_headers, generate_zerogpu, probe_ai, wait_for_ai
 from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, remove_image
 from app.config import settings
 import httpx
@@ -175,6 +176,15 @@ def recommendations(style: Style = 'casual', db: Session = Depends(get_db), user
     pairs.sort(key=lambda pair: (not (pair[0].color == pair[1].color or pair[0].color in neutral or pair[1].color in neutral), pair[0].id, pair[1].id))
     return {'data': [{'wardrobe_item_ids': [a.id, b.id], 'items': [garment(a, 'wardrobe'), garment(b, 'wardrobe')]} for a, b in pairs[:5]], 'meta': {'style': style, 'message': None if pairs else 'Add a top and bottom matching this style'}}
 
+@router.post('/try-on/warmup', status_code=204)
+def warmup(user: User = Depends(current_user)):
+    with httpx.Client() as client:
+        try:
+            probe_ai(client, 3)
+        except httpx.HTTPStatusError:
+            pass
+    return Response(status_code=204)
+
 @router.post('/try-on/generate', status_code=201)
 def generate(person_image: UploadFile = File(), wardrobe_item_id: int | None = Form(None), catalog_item_id: int | None = Form(None), db: Session = Depends(get_db), user: User = Depends(current_user)):
     if (wardrobe_item_id is None) == (catalog_item_id is None):
@@ -184,16 +194,20 @@ def generate(person_image: UploadFile = File(), wardrobe_item_id: int | None = F
         raise HTTPException(422, 'MVP try-on supports tops only')
     person = normalize_image(person_image.file.read(MAX_BYTES + 1))
     clothes = image_path(item.image_path).read_bytes()
-    headers = {'Authorization': 'Bearer ' + settings.ai_service_token} if settings.ai_service_token else {}
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.ai_timeout_seconds, connect=5)) as client:
-            with client.stream('POST', settings.ai_service_url.rstrip('/') + '/generate', files={'person_image': ('person.jpg', person, 'image/jpeg'), 'garment_image': ('garment.jpg', clothes, 'image/jpeg')}, data={'category': 'upper-body'}, headers=headers) as response:
-                response.raise_for_status()
-                data = bytearray()
-                for chunk in response.iter_bytes():
-                    data.extend(chunk)
-                    if len(data) > MAX_BYTES:
-                        raise HTTPException(502, 'AI returned an oversized image')
+            if settings.ai_cold_start_timeout_seconds:
+                wait_for_ai(client)
+            if settings.ai_hf_zerogpu:
+                data = generate_zerogpu(client, person, clothes, MAX_BYTES)
+            else:
+                with client.stream('POST', settings.ai_service_url.rstrip('/') + '/generate', files={'person_image': ('person.jpg', person, 'image/jpeg'), 'garment_image': ('garment.jpg', clothes, 'image/jpeg')}, data={'category': 'upper-body'}, headers=ai_headers()) as response:
+                    response.raise_for_status()
+                    data = bytearray()
+                    for chunk in response.iter_bytes():
+                        data.extend(chunk)
+                        if len(data) > MAX_BYTES:
+                            raise HTTPException(502, 'AI returned an oversized image')
         try:
             normalized = normalize_image(bytes(data))
         except HTTPException:

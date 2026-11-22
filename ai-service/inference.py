@@ -18,10 +18,10 @@ ImageGenerator = Callable[[Image.Image, Image.Image], Image.Image]
 logger = logging.getLogger("uvicorn.error")
 
 
-def load_model() -> ImageGenerator:
+def load_model(*, zerogpu: bool = False) -> ImageGenerator:
     import torch
 
-    if not torch.cuda.is_available():
+    if not zerogpu and not torch.cuda.is_available():
         raise RuntimeError("CatVTON requires a CUDA GPU and a CUDA-enabled PyTorch build.")
 
     weights = Path(os.environ.get("AI_MODEL_DIR", DEFAULT_MODEL_DIR)).expanduser().resolve()
@@ -77,7 +77,8 @@ def load_model() -> ImageGenerator:
 
     started = perf_counter()
     pipeline = LocalCatVTON()
-    torch.cuda.synchronize(device)
+    if not zerogpu:
+        torch.cuda.synchronize(device)
     logger.info("Loaded CatVTON %s in %.2f s", CHECKPOINT, perf_counter() - started)
 
     def generate(person: Image.Image, garment: Image.Image) -> Image.Image:

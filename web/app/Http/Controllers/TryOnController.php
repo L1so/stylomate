@@ -6,9 +6,21 @@ use App\Exceptions\FastApiException;
 use App\Http\Requests\GenerateTryOnRequest;
 use App\Services\FastApiClient;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 
 class TryOnController extends Controller
 {
+    public function warmup(FastApiClient $api): Response
+    {
+        if (config('services.fastapi.ai_warmup') && ! config('services.fastapi.use_mock')
+            && Cache::add('stylo-ai-warmup', true, 30)) {
+            $api->warmTryOn();
+        }
+
+        return response()->noContent();
+    }
+
     public function index(Request $request, FastApiClient $api) // GET /try-on?catalog_item_id=3
     {
         $result = session('try_on_result');

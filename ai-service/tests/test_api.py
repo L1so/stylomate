@@ -64,9 +64,14 @@ def test_readiness_requires_startup():
 
 def test_service_auth_when_configured():
     with TestClient(app.create_app(lambda: lambda person, garment: garment.copy(), token="shared-test")) as client:
+        assert client.get("/").json() == {"status": "ok"}
         assert try_on(client).status_code == 401
         assert try_on(client, headers={"Authorization": "Bearer incorrect"}).status_code == 401
         assert try_on(client, headers={"Authorization": "Bearer shared-test"}).status_code == 200
+        assert try_on(client, headers={
+            "Authorization": "Bearer gateway-test",
+            "X-StyloMate-Token": "shared-test",
+        }).status_code == 200
 
 
 @pytest.mark.parametrize("input_files,data,expected", [

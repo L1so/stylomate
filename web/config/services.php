@@ -39,8 +39,9 @@ return [
         // Base URL FastAPI termasuk /api, misalnya http://127.0.0.1:8000/api (kontrak FastAPI final)
         'base_url' => rtrim(env('FASTAPI_BASE_URL', 'http://127.0.0.1:8000/api'), '/'),
         'timeout' => (int) env('FASTAPI_TIMEOUT', 10),
-        // Timeout request AI (Try-On generate), harus lebih besar dari AI_TIMEOUT_SECONDS FastAPI (default 300)
+        // Sisakan waktu untuk cold-start AI dan inferensi FastAPI.
         'ai_timeout' => (int) env('FASTAPI_AI_TIMEOUT', 330),
+        'ai_warmup' => env('FASTAPI_AI_WARMUP', false),
         'use_mock' => filter_var(env('FASTAPI_USE_MOCK', false), FILTER_VALIDATE_BOOL),
     ],
 
