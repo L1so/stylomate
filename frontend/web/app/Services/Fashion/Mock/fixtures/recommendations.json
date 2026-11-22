@@ -1,0 +1,118 @@
+{
+  "casual": {
+    "message": null,
+    "outfits": [
+      {
+        "item_ids": [
+          1,
+          6
+        ],
+        "score": 7,
+        "reason": "White Tee + Blue Jeans: neutral colors are easy to pair, matches casual style."
+      },
+      {
+        "item_ids": [
+          4,
+          6
+        ],
+        "score": 7,
+        "reason": "Grey Hoodie + Blue Jeans: neutral colors are easy to pair, matches casual style."
+      },
+      {
+        "item_ids": [
+          1,
+          8
+        ],
+        "score": 5,
+        "reason": "White Tee + Beige Chinos: neutral colors are easy to pair, close to casual style."
+      }
+    ]
+  },
+  "semi-formal": {
+    "message": null,
+    "outfits": [
+      {
+        "item_ids": [
+          2,
+          8
+        ],
+        "score": 7,
+        "reason": "Blue Oxford Shirt + Beige Chinos: neutral colors are easy to pair, matches semi-formal style."
+      },
+      {
+        "item_ids": [
+          1,
+          6
+        ],
+        "score": 5,
+        "reason": "White Tee + Blue Jeans: neutral colors are easy to pair, close to semi-formal style."
+      },
+      {
+        "item_ids": [
+          1,
+          8
+        ],
+        "score": 5,
+        "reason": "White Tee + Beige Chinos: neutral colors are easy to pair, close to semi-formal style."
+      }
+    ]
+  },
+  "formal": {
+    "message": null,
+    "outfits": [
+      {
+        "item_ids": [
+          3,
+          7
+        ],
+        "score": 7,
+        "reason": "White Dress Shirt + Black Dress Pants: neutral colors are easy to pair, matches formal style."
+      },
+      {
+        "item_ids": [
+          2,
+          7
+        ],
+        "score": 5,
+        "reason": "Blue Oxford Shirt + Black Dress Pants: neutral colors are easy to pair, close to formal style."
+      },
+      {
+        "item_ids": [
+          2,
+          8
+        ],
+        "score": 5,
+        "reason": "Blue Oxford Shirt + Beige Chinos: neutral colors are easy to pair, close to formal style."
+      }
+    ]
+  },
+  "sporty": {
+    "message": null,
+    "outfits": [
+      {
+        "item_ids": [
+          5,
+          9
+        ],
+        "score": 7,
+        "reason": "Black Sports Jersey + Navy Track Pants: neutral colors are easy to pair, matches sporty style."
+      },
+      {
+        "item_ids": [
+          1,
+          6
+        ],
+        "score": 5,
+        "reason": "White Tee + Blue Jeans: neutral colors are easy to pair, close to sporty style."
+      },
+      {
+        "item_ids": [
+          1,
+          9
+        ],
+        "score": 5,
+        "reason": "White Tee + Navy Track Pants: neutral colors are easy to pair, close to sporty style."
+      }
+    ]
+  }
+}
