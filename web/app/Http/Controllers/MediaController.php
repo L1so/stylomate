@@ -6,15 +6,22 @@ use App\Services\FastApiClient;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 
+// Proxy gambar privat: Laravel mengambil gambar dari endpoint FastAPI yang tetap (per id) memakai JWT di session,
+// lalu meneruskannya ke browser. Tidak ada proxy path bebas, dan token tidak pernah masuk ke HTML/URL.
 class MediaController extends Controller
 {
-    public function show(Request $request, FastApiClient $api, string $path) // GET /media/{path}
+    public function tryOn(Request $request, FastApiClient $api, int $id) // GET /media/try-on/{id}
     {
-        // Tolak ".." supaya path tidak bisa keluar folder (path traversal)
-        abort_if(str_contains($path, '..'), 404);
+        return $this->imageResponse($api->tryOnImage($id), $request->boolean('download') ? "stylomate-try-on-{$id}" : null);
+    }
 
-        $file = $api->file($path);
+    public function wardrobe(FastApiClient $api, int $id) // GET /media/wardrobe/{id}
+    {
+        return $this->imageResponse($api->wardrobeImage($id), null);
+    }
 
+    private function imageResponse(array $file, ?string $downloadName)
+    {
         $headers = [
             'Content-Type' => $file['type'],
             'X-Content-Type-Options' => 'nosniff',
@@ -22,9 +29,9 @@ class MediaController extends Controller
             'Cache-Control' => 'private, max-age=300',
         ];
 
-        if ($request->boolean('download')) {
-            // attachment = browser mengunduh file, bukan menampilkannya
-            $headers['Content-Disposition'] = HeaderUtils::makeDisposition('attachment', 'stylomate-'.basename($path));
+        if ($downloadName !== null) {
+            // attachment = browser mengunduh file, bukan menampilkannya (F-10)
+            $headers['Content-Disposition'] = HeaderUtils::makeDisposition('attachment', $downloadName.'.'.FastApiClient::IMAGE_TYPES[$file['type']]);
         }
 
         return response($file['content'], 200, $headers);

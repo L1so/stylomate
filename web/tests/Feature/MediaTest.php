@@ -8,6 +8,10 @@ use Tests\TestCase;
 
 class MediaTest extends TestCase
 {
+    private const TRY_ON_URL = 'http://fastapi.test/api/try-on/9/image';
+
+    private const WARDROBE_URL = 'http://fastapi.test/api/wardrobe/11/image';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -15,38 +19,50 @@ class MediaTest extends TestCase
         Http::preventStrayRequests();
     }
 
-    public function test_proxies_private_image_with_token(): void
+    public function test_proxies_try_on_image_with_token(): void
     {
-        Http::fake(['http://fastapi.test/api/files/try-on/9.png' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+        Http::fake([self::TRY_ON_URL => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
 
         $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/9.png')
+            ->get('/media/try-on/9')
             ->assertOk()
             ->assertHeader('Content-Type', 'image/png')
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertSee('PNGDATA');
 
-        Http::assertSent(fn (Request $request) => $request->hasHeader('Authorization', 'Bearer jwt-1'));
+        Http::assertSent(fn (Request $request) => $request->url() === self::TRY_ON_URL && $request->hasHeader('Authorization', 'Bearer jwt-1'));
+    }
+
+    public function test_proxies_wardrobe_image_with_token(): void
+    {
+        Http::fake([self::WARDROBE_URL => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/media/wardrobe/11')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+
+        Http::assertSent(fn (Request $request) => $request->url() === self::WARDROBE_URL && $request->hasHeader('Authorization', 'Bearer jwt-1'));
     }
 
     public function test_download_sends_attachment_header(): void
     {
-        Http::fake(['http://fastapi.test/api/files/try-on/9.png' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+        Http::fake([self::TRY_ON_URL => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
 
         $response = $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/9.png?download=1')
+            ->get('/media/try-on/9?download=1')
             ->assertOk();
 
         $this->assertStringStartsWith('attachment', $response->headers->get('Content-Disposition'));
-        $this->assertStringContainsString('stylomate-9.png', $response->headers->get('Content-Disposition'));
+        $this->assertStringContainsString('stylomate-try-on-9.png', $response->headers->get('Content-Disposition'));
     }
 
     public function test_view_without_download_has_no_attachment_header(): void
     {
-        Http::fake(['http://fastapi.test/api/files/try-on/9.png' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+        Http::fake([self::TRY_ON_URL => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
 
         $response = $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/9.png')
+            ->get('/media/try-on/9')
             ->assertOk();
 
         $this->assertNull($response->headers->get('Content-Disposition'));
@@ -54,16 +70,16 @@ class MediaTest extends TestCase
 
     public function test_rejects_non_image_content(): void
     {
-        Http::fake(['http://fastapi.test/api/files/try-on/9.png' => Http::response('<html></html>', 200, ['Content-Type' => 'text/html'])]);
+        Http::fake([self::TRY_ON_URL => Http::response('<html></html>', 200, ['Content-Type' => 'text/html'])]);
 
         $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/9.png')
+            ->get('/media/try-on/9')
             ->assertStatus(502);
     }
 
     public function test_guest_is_redirected_to_login(): void
     {
-        $this->get('/media/try-on/9.png')->assertRedirect(route('login'));
+        $this->get('/media/try-on/9')->assertRedirect(route('login'));
 
         Http::assertNothingSent();
     }
@@ -77,10 +93,10 @@ class MediaTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invalid_characters_are_rejected(): void
+    public function test_non_numeric_wardrobe_id_is_rejected(): void
     {
         $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/a%3Cb.png')
+            ->get('/media/wardrobe/abc')
             ->assertNotFound();
 
         Http::assertNothingSent();
@@ -88,10 +104,27 @@ class MediaTest extends TestCase
 
     public function test_fastapi_not_found_returns_404(): void
     {
-        Http::fake(['http://fastapi.test/api/files/try-on/9.png' => Http::response(['detail' => 'Not found'], 404)]);
+        Http::fake([self::TRY_ON_URL => Http::response(['detail' => 'Not found'], 404)]);
 
         $this->withSession(['api_token' => 'jwt-1'])
-            ->get('/media/try-on/9.png')
+            ->get('/media/try-on/9')
             ->assertNotFound();
+    }
+
+    public function test_token_is_not_exposed_in_profile_html(): void
+    {
+        Http::fake([
+            'http://fastapi.test/api/auth/me' => Http::response(['data' => ['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com']]),
+            'http://fastapi.test/api/outfits' => Http::response(['data' => []]),
+            'http://fastapi.test/api/try-on/history' => Http::response(['data' => [
+                ['id' => 9, 'catalog_item_id' => 1, 'wardrobe_item_id' => null, 'image_url' => '/api/try-on/9/image', 'created_at' => '2026-11-22T07:00:00Z'],
+            ]]),
+        ]);
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile?tab=try-on')
+            ->assertOk()
+            ->assertSee(route('media.try-on', ['id' => 9]), false)
+            ->assertDontSee('jwt-1');
     }
 }

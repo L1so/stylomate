@@ -79,6 +79,10 @@ class MockApiTest extends TestCase
         $this->get('/catalog?category=bottom')
             ->assertSee('Kulot Katun Organik')
             ->assertDontSee('Kemeja Linen Oversize');
+
+        $this->get('/catalog?category=shoes')
+            ->assertSee('Sneakers Kanvas')
+            ->assertDontSee('Kemeja Linen Oversize');
     }
 
     public function test_mock_catalog_item_uses_local_illustration(): void
@@ -104,8 +108,16 @@ class MockApiTest extends TestCase
 
     public function test_mock_media_returns_placeholder_png(): void
     {
-        $this->withSession(['api_token' => 'mock-token:'.MockFastApiClient::DEMO_EMAIL])
-            ->get('/media/try-on/1.png')
+        $this->post('/login', [
+            'email' => MockFastApiClient::DEMO_EMAIL,
+            'password' => MockFastApiClient::DEMO_PASSWORD,
+        ]);
+
+        $this->get('/media/try-on/1')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+
+        $this->get('/media/wardrobe/11')
             ->assertOk()
             ->assertHeader('Content-Type', 'image/png');
     }

@@ -37,7 +37,7 @@ php artisan key:generate
 composer run dev
 ```
 
-Open http://localhost:8080. Laravel has no business database; all data comes from FastAPI (`FASTAPI_BASE_URL`, default http://localhost:8000) through `app/Services/FastApiClient.php`. Set `FASTAPI_USE_MOCK=true` to use sample data before the backend is ready. Details: `web/README.md`.
+Open http://localhost:8080. Laravel has no business database; all data comes from FastAPI (`FASTAPI_BASE_URL` including `/api`, default http://127.0.0.1:8000/api) through `app/Services/FastApiClient.php`. Set `FASTAPI_USE_MOCK=true` to use sample data before the backend is ready. Details: `web/README.md`.
 
 `frontend/` is the legacy React starter kept until the migration is approved (PRD v1.1 §16.1). Do not develop new UI there.
 

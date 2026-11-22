@@ -36,10 +36,15 @@ class AuthTest extends TestCase
         ];
     }
 
-    public function test_login_success_stores_token_and_redirects_to_wardrobe(): void
+    public function test_login_stores_access_token_from_data_envelope(): void
     {
         Http::fake([
-            self::BASE.'/auth/login' => Http::response(['access_token' => 'jwt-abc', 'token_type' => 'bearer']),
+            self::BASE.'/auth/login' => Http::response(['data' => [
+                'access_token' => 'jwt-abc',
+                'token_type' => 'bearer',
+                'expires_in' => 3600,
+                'user' => ['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com'],
+            ]]),
         ]);
 
         $this->from('/login')->post('/login', $this->validLogin())
@@ -74,7 +79,7 @@ class AuthTest extends TestCase
     public function test_login_redirects_to_intended_page(): void
     {
         Http::fake([
-            self::BASE.'/auth/login' => Http::response(['access_token' => 'jwt-abc']),
+            self::BASE.'/auth/login' => Http::response(['data' => ['access_token' => 'jwt-abc']]),
         ]);
 
         $this->get('/mix-match');
@@ -86,8 +91,8 @@ class AuthTest extends TestCase
     public function test_register_success_logs_user_in(): void
     {
         Http::fake([
-            self::BASE.'/auth/register' => Http::response(['id' => 7, 'name' => 'Budi', 'email' => 'budi@example.com'], 201),
-            self::BASE.'/auth/login' => Http::response(['access_token' => 'jwt-baru']),
+            self::BASE.'/auth/register' => Http::response(['data' => ['id' => 7, 'name' => 'Budi', 'email' => 'budi@example.com']], 201),
+            self::BASE.'/auth/login' => Http::response(['data' => ['access_token' => 'jwt-baru']]),
         ]);
 
         $this->from('/register')->post('/register', $this->validRegister())
@@ -121,16 +126,19 @@ class AuthTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_register_shows_fastapi_validation_errors_on_field(): void
+    public function test_validation_error_fields_are_mapped_to_form(): void
     {
         Http::fake([
             self::BASE.'/auth/register' => Http::response([
-                'detail' => [['loc' => ['body', 'email'], 'msg' => 'value is not a valid email', 'type' => 'value_error']],
+                'error' => [
+                    'message' => 'Validation failed',
+                    'fields' => [['field' => 'email', 'message' => 'Email tidak valid.']],
+                ],
             ], 422),
         ]);
 
         $this->from('/register')->post('/register', $this->validRegister())
-            ->assertSessionHasErrors('email');
+            ->assertSessionHasErrors(['email' => 'Email tidak valid.']);
     }
 
     public function test_backend_down_shows_friendly_message_on_form(): void

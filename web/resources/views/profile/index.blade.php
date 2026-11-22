@@ -14,7 +14,9 @@
                     <p class="text-xs font-semibold uppercase tracking-[0.12em] text-terracotta">Profil</p>
                     <h1 id="pf-nama" class="font-serif text-[32px] font-medium italic leading-10 tracking-[-0.015em] md:text-5xl md:leading-[56px]">{{ $user['name'] ?? '-' }}</h1>
                     <span class="text-taupe">{{ $user['email'] ?? '-' }}</span>
-                    <span class="text-sm text-taupe">Bergabung sejak <x-date :value="$user['created_at'] ?? null" /></span>
+                    @if (!empty($user['created_at']))
+                        <span class="text-sm text-taupe">Bergabung sejak <x-date :value="$user['created_at']" /></span>
+                    @endif
                 </div>
             </div>
             <form action="{{ route('logout') }}" method="POST">
@@ -42,25 +44,25 @@
                 @if (count($outfits) > 0)
                     <ul class="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
                         @foreach ($outfits as $outfit)
-                            @php
-                                $pieces = collect($outfit['items'] ?? [])->sortBy(fn ($piece) => ($piece['category'] ?? '') === 'top' ? 0 : 1)->values();
-                            @endphp
                             <li class="flex flex-col gap-3 rounded-md bg-white p-3 shadow-xs">
                                 <div class="flex flex-col overflow-hidden rounded-sm bg-grad-photo">
-                                    @foreach ($pieces as $piece)
+                                    {{-- Outfit hanya membawa wardrobe_item_ids; gambar diambil lewat proxy /media/wardrobe/{id} --}}
+                                    @forelse ($outfit['wardrobe_images'] ?? [] as $imageUrl)
                                         <div class="flex aspect-[4/3] items-center justify-center overflow-hidden">
-                                            @if (!empty($piece['image_url']))
-                                                <img src="{{ $piece['image_url'] }}" alt="{{ $piece['name'] ?? 'Pakaian' }}" width="300" height="225" loading="lazy" class="h-full w-full object-cover">
-                                            @else
-                                                <span class="text-xs text-taupe">Belum ada foto</span>
-                                            @endif
+                                            <img src="{{ $imageUrl }}" alt="Pakaian {{ $loop->iteration }} dari outfit {{ $outfit['name'] ?? '' }}" width="300" height="225" loading="lazy" class="h-full w-full object-cover">
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div class="flex aspect-[4/3] items-center justify-center">
+                                            <span class="text-xs text-taupe">Belum ada foto</span>
+                                        </div>
+                                    @endforelse
                                 </div>
                                 <div class="flex flex-col gap-0.5 px-1">
                                     <h3 class="font-serif text-lg font-medium leading-[26px]">{{ $outfit['name'] ?? 'Outfit tanpa nama' }}</h3>
-                                    <span class="text-[13px] leading-[18px] text-taupe">{{ $pieces->pluck('name')->filter()->implode(' + ') }}</span>
-                                    <span class="text-xs text-taupe">Disimpan <x-date :value="$outfit['created_at'] ?? null" /></span>
+                                    <span class="text-[13px] leading-[18px] text-taupe">{{ count($outfit['wardrobe_item_ids'] ?? []) }} pakaian</span>
+                                    @if (!empty($outfit['created_at']))
+                                        <span class="text-xs text-taupe">Disimpan <x-date :value="$outfit['created_at']" /></span>
+                                    @endif
                                 </div>
                                 <div class="px-1 pb-1">
                                     <x-confirm-delete :action="route('outfits.destroy', $outfit['id'])" message="Hapus outfit ini? Tindakan ini tidak bisa dibatalkan." />
@@ -72,7 +74,7 @@
                     <x-empty-state title="Belum ada outfit tersimpan" message="Buat outfit di Mix & Match atau simpan dari Rekomendasi." action-label="Buka Mix & Match" :action-url="route('mix-match.index')" />
                 @endif
             @else
-                {{-- Gambar hasil Try On lewat route media (proxy), bukan URL FastAPI langsung --}}
+                {{-- Gambar hasil Try On lewat proxy /media/try-on/{id}, bukan URL FastAPI langsung --}}
                 @if (count($tryOns) > 0)
                     <ul class="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
                         @foreach ($tryOns as $tryOn)
@@ -94,7 +96,9 @@
                                         @else
                                             Sumber tidak diketahui
                                         @endif
-                                        · <x-date :value="$tryOn['created_at'] ?? null" />
+                                        @if (!empty($tryOn['created_at']))
+                                            · <x-date :value="$tryOn['created_at']" />
+                                        @endif
                                     </span>
                                 </div>
                                 <div class="flex flex-wrap gap-2 px-1 pb-1">

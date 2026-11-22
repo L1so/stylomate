@@ -15,8 +15,18 @@ use Illuminate\Validation\ValidationException;
 // (Anggota 3), jadi controller memanggil class ini dan URL/format API cukup diubah di sini.
 class FastApiClient
 {
-    // Kategori yang dipakai filter Catalog. Sepakati nilai kategori dengan Anggota 3
-    public const CATEGORIES = ['top' => 'Atasan', 'bottom' => 'Bawahan'];
+    // Kategori backend FastAPI (kontrak final) beserta label UI
+    public const CATEGORIES = [
+        'top' => 'Atasan',
+        'bottom' => 'Bawahan',
+        'dress' => 'Dress',
+        'outerwear' => 'Outer',
+        'shoes' => 'Sepatu',
+        'accessory' => 'Aksesori',
+    ];
+
+    // Hanya gambar JPEG/PNG/WebP yang diteruskan ke browser (PRD: upload JPEG/PNG)
+    public const IMAGE_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
 
     public function register(string $name, string $email, string $password): array
     {
@@ -25,7 +35,7 @@ class FastApiClient
 
     public function login(string $email, string $password): string
     {
-        // Sepakati dengan Anggota 3: body JSON {email, password}, respons {access_token, token_type}
+        // Respons: {"data": {"access_token", "token_type", "expires_in", "user"}}
         $data = $this->send('post', '/auth/login', compact('email', 'password'));
         $token = $data['access_token'] ?? null;
 
@@ -41,10 +51,12 @@ class FastApiClient
         return $this->send('get', '/auth/me');
     }
 
-    public function catalog(array $filters = []): array
+    public function catalog(string $search = '', string $category = ''): array
     {
-        // Sepakati dengan Anggota 3: query ?search= (nama/brand) dan ?category=
-        return array_map(fn (array $item) => $this->withCatalogUrls($item), $this->listFrom($this->send('get', '/catalog', $filters)));
+        // UI memakai ?search=, backend FastAPI memakai ?q=
+        $query = array_filter(['q' => $search, 'category' => $category], fn (string $value) => $value !== '');
+
+        return array_map(fn (array $item) => $this->withCatalogUrls($item), $this->listOf($this->send('get', '/catalog', $query)));
     }
 
     public function catalogItem(int $id): array
@@ -55,13 +67,12 @@ class FastApiClient
     public function outfits(): array
     {
         return array_map(function (array $outfit) {
-            $outfit['items'] = array_map(
-                fn ($item) => $this->withPrivateImage(is_array($item) ? $item : [], 'image_path'),
-                is_array($outfit['items'] ?? null) ? $outfit['items'] : []
-            );
+            // Outfit hanya membawa wardrobe_item_ids; gambar tiap item diambil lewat proxy Laravel
+            $ids = array_filter(is_array($outfit['wardrobe_item_ids'] ?? null) ? $outfit['wardrobe_item_ids'] : [], 'is_int');
+            $outfit['wardrobe_images'] = array_values(array_map(fn (int $id) => route('media.wardrobe', ['id' => $id]), $ids));
 
             return $outfit;
-        }, $this->listFrom($this->send('get', '/outfits')));
+        }, $this->listOf($this->send('get', '/outfits')));
     }
 
     public function deleteOutfit(int $id): void
@@ -71,7 +82,14 @@ class FastApiClient
 
     public function tryOnHistory(): array
     {
-        return array_map(fn (array $result) => $this->withPrivateImage($result, 'result_image_path'), $this->listFrom($this->send('get', '/try-on/history')));
+        return array_map(function (array $result) {
+            // image_url dari backend (/api/try-on/{id}/image) butuh JWT, jadi browser memakai proxy Laravel ber-id
+            $id = $result['id'] ?? null;
+            $result['image_url'] = is_int($id) ? route('media.try-on', ['id' => $id]) : null;
+            $result['download_url'] = is_int($id) ? route('media.try-on', ['id' => $id, 'download' => 1]) : null;
+
+            return $result;
+        }, $this->listOf($this->send('get', '/try-on/history')));
     }
 
     public function deleteTryOn(int $id): void
@@ -79,14 +97,22 @@ class FastApiClient
         $this->send('delete', "/try-on/{$id}");
     }
 
-    public function file(string $path): array
+    public function tryOnImage(int $id): array
     {
-        // Sepakati dengan Anggota 3: file privat diambil dari GET /api/files/{image_path} dengan JWT pemilik
-        $response = $this->request('get', '/files/'.$path);
+        return $this->image("/try-on/{$id}/image");
+    }
+
+    public function wardrobeImage(int $id): array
+    {
+        return $this->image("/wardrobe/{$id}/image");
+    }
+
+    protected function image(string $uri): array
+    {
+        $response = $this->request('get', $uri);
         $type = strtolower(trim(strtok((string) $response->header('Content-Type'), ';') ?: ''));
 
-        // Hanya teruskan gambar JPEG/PNG/WebP (PRD: upload JPEG/PNG)
-        if (! in_array($type, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        if (! array_key_exists($type, self::IMAGE_TYPES)) {
             throw new FastApiException('File ini tidak bisa ditampilkan.', 502);
         }
 
@@ -95,7 +121,8 @@ class FastApiClient
 
     protected function client(): PendingRequest
     {
-        $request = Http::baseUrl(config('services.fastapi.base_url').'/api')
+        // FASTAPI_BASE_URL sudah termasuk /api, jadi endpoint ditulis relatif (/auth/login), bukan /api/auth/login
+        $request = Http::baseUrl(config('services.fastapi.base_url'))
             ->acceptJson()
             ->connectTimeout(5)
             ->timeout(config('services.fastapi.timeout'));
@@ -129,24 +156,26 @@ class FastApiClient
 
     protected function send(string $method, string $uri, array $data = []): array
     {
-        $json = $this->request($method, $uri, $data)->json();
+        // Semua respons sukses FastAPI dibungkus {"data": ...}; respons tanpa body (204) menjadi []
+        $data = $this->request($method, $uri, $data)->json('data');
 
-        return is_array($json) ? $json : [];
+        return is_array($data) ? $data : [];
     }
 
     private function fieldErrors(Response $response): array
     {
-        // Format 422 FastAPI: {"detail": [{"loc": ["body", "email"], "msg": "..."}]}
-        $detail = $response->json('detail');
-        if (! is_array($detail)) {
+        // Format 422: {"error": {"message": "...", "fields": [{"field": "email", "message": "..."}]}}
+        $fields = $response->json('error.fields');
+        if (! is_array($fields)) {
             return [];
         }
 
         $errors = [];
-        foreach ($detail as $item) {
-            $field = is_array($item['loc'] ?? null) ? end($item['loc']) : null;
-            if (is_string($field) && $field !== 'body') {
-                $errors[$field] = ['Isian ini ditolak server. Periksa lagi.'];
+        foreach ($fields as $field) {
+            $name = $field['field'] ?? null;
+            if (is_string($name) && $name !== '') {
+                $message = $field['message'] ?? null;
+                $errors[$name][] = is_string($message) && $message !== '' ? $message : 'Isian ini ditolak server. Periksa lagi.';
             }
         }
 
@@ -166,23 +195,15 @@ class FastApiClient
         };
     }
 
-    private function listFrom(array $json): array
+    private function listOf(array $data): array
     {
-        // Sepakati dengan Anggota 3: list berupa array langsung atau dibungkus {"data": [...]}
-        $items = $json['data'] ?? $json['items'] ?? $json;
-
-        return array_values(array_filter(is_array($items) ? $items : [], 'is_array'));
+        return array_values(array_filter($data, 'is_array'));
     }
 
     private function withCatalogUrls(array $item): array
     {
-        // Sepakati dengan Anggota 3: image_path katalog berupa URL penuh atau path relatif dari FASTAPI_BASE_URL
-        $path = $item['image_path'] ?? null;
-        $item['image_url'] = match (true) {
-            ! is_string($path) || $path === '' => null,
-            Str::startsWith($path, ['http://', 'https://']) => $path,
-            default => config('services.fastapi.base_url').'/'.ltrim($path, '/'),
-        };
+        // Gambar Catalog publik: browser memuatnya langsung dari FastAPI lewat image_url
+        $item['image_url'] = $this->absoluteUrl($item['image_url'] ?? null);
 
         // Hanya link http/https yang boleh tampil (cegah href "javascript:")
         $url = $item['product_url'] ?? null;
@@ -193,15 +214,24 @@ class FastApiClient
         return $item;
     }
 
-    private function withPrivateImage(array $item, string $key): array
+    private function absoluteUrl(mixed $url): ?string
     {
-        // Gambar privat lewat route /media milik Laravel (JWT tetap di server), tidak langsung dari FastAPI
-        $path = $item[$key] ?? null;
-        $item['image_url'] = is_string($path) && $path !== '' ? route('media.show', ['path' => ltrim($path, '/')]) : null;
+        if (! is_string($url) || $url === '') {
+            return null;
+        }
 
-        // Link unduh memakai route media yang sama dengan ?download=1 (F-10)
-        $item['download_url'] = $item['image_url'] !== null ? route('media.show', ['path' => ltrim($path, '/'), 'download' => 1]) : null;
+        if (Str::startsWith($url, ['http://', 'https://'])) {
+            return $url;
+        }
 
-        return $item;
+        $base = config('services.fastapi.base_url');
+        if (! str_starts_with($url, '/')) {
+            return $base.'/'.$url;
+        }
+
+        // Path absolut dari backend (/api/catalog/1/image) ditempel ke origin FastAPI, bukan ke base URL, agar tidak jadi /api/api
+        $parts = parse_url($base);
+
+        return ($parts['scheme'] ?? 'http').'://'.($parts['host'] ?? '').(isset($parts['port']) ? ':'.$parts['port'] : '').$url;
     }
 }

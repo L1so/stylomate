@@ -19,14 +19,16 @@ class MockFastApiClient extends FastApiClient
     private const TOKEN_PREFIX = 'mock-token:';
 
     private const CATALOG = [
-        ['id' => 1, 'name' => 'Kemeja Linen Oversize', 'brand' => 'Brand Contoh A', 'category' => 'top', 'color' => 'putih', 'style' => 'semi-formal', 'illustration' => 'kemeja', 'image_path' => null, 'product_url' => 'https://example.com/products/1'],
-        ['id' => 2, 'name' => 'Kaos Katun Organik', 'brand' => 'Brand Contoh B', 'category' => 'top', 'color' => 'krem', 'style' => 'casual', 'illustration' => 'kaos', 'image_path' => null, 'product_url' => null],
-        ['id' => 3, 'name' => 'Sweater Rajut Daur Ulang', 'brand' => 'Brand Contoh A', 'category' => 'top', 'color' => 'cokelat', 'style' => 'casual', 'illustration' => 'sweater', 'image_path' => null, 'product_url' => 'https://example.com/products/3'],
-        ['id' => 4, 'name' => 'Kemeja Tencel Kerah', 'brand' => 'Brand Contoh C', 'category' => 'top', 'color' => 'putih', 'style' => 'formal', 'illustration' => 'kemeja', 'image_path' => null, 'product_url' => null],
-        ['id' => 5, 'name' => 'Kulot Katun Organik', 'brand' => 'Brand Contoh B', 'category' => 'bottom', 'color' => 'krem', 'style' => 'semi-formal', 'illustration' => 'kulot', 'image_path' => null, 'product_url' => 'https://example.com/products/5'],
-        ['id' => 6, 'name' => 'Jeans Lurus Denim Daur Ulang', 'brand' => 'Brand Contoh A', 'category' => 'bottom', 'color' => 'biru', 'style' => 'casual', 'illustration' => 'jeans', 'image_path' => null, 'product_url' => null],
-        ['id' => 7, 'name' => 'Rok Plisket Midi', 'brand' => 'Brand Contoh C', 'category' => 'bottom', 'color' => 'terracotta', 'style' => 'formal', 'illustration' => 'rok', 'image_path' => null, 'product_url' => 'https://example.com/products/7'],
-        ['id' => 8, 'name' => 'Celana Jogger Katun', 'brand' => 'Brand Contoh B', 'category' => 'bottom', 'color' => 'hitam', 'style' => 'sporty', 'illustration' => 'jeans', 'image_path' => null, 'product_url' => null],
+        ['id' => 1, 'name' => 'Kemeja Linen Oversize', 'brand' => 'Brand Contoh A', 'category' => 'top', 'color' => 'putih', 'style' => 'semi-formal', 'illustration' => 'kemeja', 'product_url' => 'https://example.com/products/1'],
+        ['id' => 2, 'name' => 'Kaos Katun Organik', 'brand' => 'Brand Contoh B', 'category' => 'top', 'color' => 'krem', 'style' => 'casual', 'illustration' => 'kaos', 'product_url' => null],
+        ['id' => 3, 'name' => 'Sweater Rajut Daur Ulang', 'brand' => 'Brand Contoh A', 'category' => 'top', 'color' => 'cokelat', 'style' => 'casual', 'illustration' => 'sweater', 'product_url' => 'https://example.com/products/3'],
+        ['id' => 4, 'name' => 'Kulot Katun Organik', 'brand' => 'Brand Contoh B', 'category' => 'bottom', 'color' => 'krem', 'style' => 'semi-formal', 'illustration' => 'kulot', 'product_url' => 'https://example.com/products/4'],
+        ['id' => 5, 'name' => 'Jeans Lurus Denim Daur Ulang', 'brand' => 'Brand Contoh A', 'category' => 'bottom', 'color' => 'biru', 'style' => 'casual', 'illustration' => 'jeans', 'product_url' => null],
+        ['id' => 6, 'name' => 'Rok Plisket Midi', 'brand' => 'Brand Contoh C', 'category' => 'bottom', 'color' => 'terracotta', 'style' => 'formal', 'illustration' => 'rok', 'product_url' => 'https://example.com/products/6'],
+        ['id' => 7, 'name' => 'Dress Linen Tali', 'brand' => 'Brand Contoh C', 'category' => 'dress', 'color' => 'krem', 'style' => 'casual', 'illustration' => 'dress', 'product_url' => 'https://example.com/products/7'],
+        ['id' => 8, 'name' => 'Blazer Wol Daur Ulang', 'brand' => 'Brand Contoh A', 'category' => 'outerwear', 'color' => 'terracotta', 'style' => 'formal', 'illustration' => 'blazer', 'product_url' => null],
+        ['id' => 9, 'name' => 'Sneakers Kanvas', 'brand' => 'Brand Contoh B', 'category' => 'shoes', 'color' => 'putih', 'style' => 'sporty', 'illustration' => 'sepatu', 'product_url' => 'https://example.com/products/9'],
+        ['id' => 10, 'name' => 'Tote Bag Kanvas', 'brand' => 'Brand Contoh C', 'category' => 'accessory', 'color' => 'krem', 'style' => 'casual', 'illustration' => 'tas', 'product_url' => null],
     ];
 
     // Gambar PNG 1x1 sebagai pengganti hasil try-on/wardrobe di mode mock
@@ -90,25 +92,26 @@ class MockFastApiClient extends FastApiClient
         return $users;
     }
 
-    public function file(string $path): array
+    // Gambar privat mock (try-on/wardrobe) dari endpoint tetap per id
+    protected function image(string $uri): array
     {
-        if (! Str::startsWith($path, ['wardrobe/', 'try-on/'])) {
+        if (preg_match('#^/(try-on|wardrobe)/\d+/image$#', $uri) !== 1) {
             throw new FastApiException($this->messageFor(404), 404);
         }
 
         return ['content' => base64_decode(self::PLACEHOLDER_PNG), 'type' => 'image/png'];
     }
 
-    // Meniru endpoint FastAPI untuk katalog, outfit, dan riwayat try-on
+    // Meniru endpoint FastAPI untuk katalog, outfit, dan riwayat try-on; mengembalikan isi "data" (sudah dibuka)
     protected function send(string $method, string $uri, array $data = []): array
     {
         if ($method === 'get' && $uri === '/catalog') {
-            // Meniru pencarian (nama/brand) dan filter kategori FastAPI
-            $search = Str::lower($data['search'] ?? '');
+            // Meniru pencarian ?q= (nama/brand) dan filter kategori FastAPI
+            $search = Str::lower($data['q'] ?? '');
             $items = array_filter(self::CATALOG, fn (array $item) => ($search === '' || Str::contains(Str::lower($item['name'].' '.$item['brand']), $search))
                 && (empty($data['category']) || $item['category'] === $data['category']));
 
-            return ['data' => array_map(fn (array $item) => $this->withIllustration($item), array_values($items))];
+            return array_map(fn (array $item) => $this->withIllustration($item), array_values($items));
         }
 
         if ($method === 'get' && preg_match('#^/catalog/(\d+)$#', $uri, $match) === 1) {
@@ -116,11 +119,11 @@ class MockFastApiClient extends FastApiClient
         }
 
         if ($method === 'get' && $uri === '/outfits') {
-            return ['data' => $this->userData('outfits')];
+            return $this->userData('outfits');
         }
 
         if ($method === 'get' && $uri === '/try-on/history') {
-            return ['data' => $this->userData('try_ons')];
+            return $this->userData('try_ons');
         }
 
         if ($method === 'delete' && preg_match('#^/(outfits|try-on)/(\d+)$#', $uri, $match) === 1) {
@@ -146,7 +149,7 @@ class MockFastApiClient extends FastApiClient
     // Mode mock memakai ilustrasi lokal sebagai gambar produk
     private function withIllustration(array $row): array
     {
-        $row['image_path'] = asset('images/illustrations/'.$row['illustration'].'.svg');
+        $row['image_url'] = asset('images/illustrations/'.$row['illustration'].'.svg');
         unset($row['illustration']);
 
         return $row;
@@ -154,21 +157,15 @@ class MockFastApiClient extends FastApiClient
 
     private function userData(string $type): array
     {
-        // Data per pengguna disimpan di cache supaya hapus outfit/try-on bisa dicoba
-        return Cache::rememberForever("mock_{$type}:".$this->me()['email'], fn () => $type === 'outfits'
+        // Data per pengguna disimpan di cache supaya hapus outfit/try-on bisa dicoba (v2 = bentuk kontrak FastAPI final)
+        return Cache::rememberForever("mock_v2_{$type}:".$this->me()['email'], fn () => $type === 'outfits'
             ? [
-                ['id' => 1, 'name' => 'Santai ke Kampus', 'created_at' => '2026-11-20T09:00:00Z', 'items' => [
-                    ['id' => 11, 'name' => 'Kaos Garis', 'category' => 'top', 'image_path' => 'wardrobe/11.png'],
-                    ['id' => 12, 'name' => 'Jeans Denim', 'category' => 'bottom', 'image_path' => 'wardrobe/12.png'],
-                ]],
-                ['id' => 2, 'name' => 'Kuliah hari Senin', 'created_at' => '2026-11-21T08:30:00Z', 'items' => [
-                    ['id' => 13, 'name' => 'Kemeja Putih', 'category' => 'top', 'image_path' => 'wardrobe/13.png'],
-                    ['id' => 14, 'name' => 'Celana Bahan', 'category' => 'bottom', 'image_path' => 'wardrobe/14.png'],
-                ]],
+                ['id' => 1, 'name' => 'Santai ke Kampus', 'wardrobe_item_ids' => [11, 12]],
+                ['id' => 2, 'name' => 'Kuliah hari Senin', 'wardrobe_item_ids' => [13, 14]],
             ]
             : [
-                ['id' => 1, 'wardrobe_item_id' => null, 'catalog_item_id' => 1, 'result_image_path' => 'try-on/1.png', 'created_at' => '2026-11-21T10:00:00Z'],
-                ['id' => 2, 'wardrobe_item_id' => 11, 'catalog_item_id' => null, 'result_image_path' => 'try-on/2.png', 'created_at' => '2026-11-22T07:15:00Z'],
+                ['id' => 1, 'wardrobe_item_id' => null, 'catalog_item_id' => 1, 'image_url' => '/api/try-on/1/image', 'created_at' => '2026-11-21T10:00:00Z'],
+                ['id' => 2, 'wardrobe_item_id' => 11, 'catalog_item_id' => null, 'image_url' => '/api/try-on/2/image', 'created_at' => '2026-11-22T07:15:00Z'],
             ]);
     }
 
@@ -176,6 +173,6 @@ class MockFastApiClient extends FastApiClient
     {
         $rows = $this->userData($type);
         $this->findById($rows, $id);
-        Cache::forever("mock_{$type}:".$this->me()['email'], array_values(array_filter($rows, fn (array $row) => $row['id'] !== $id)));
+        Cache::forever("mock_v2_{$type}:".$this->me()['email'], array_values(array_filter($rows, fn (array $row) => $row['id'] !== $id)));
     }
 }

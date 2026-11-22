@@ -16,7 +16,7 @@ class CatalogController extends Controller
         $categoryInput = $request->query('category');
         $category = is_string($categoryInput) && array_key_exists($categoryInput, FastApiClient::CATEGORIES) ? $categoryInput : '';
 
-        $items = $api->catalog(array_filter(['search' => $search, 'category' => $category], fn (string $value) => $value !== ''));
+        $items = $api->catalog($search, $category);
         $categories = FastApiClient::CATEGORIES;
 
         return view('catalog.index', compact('items', 'search', 'category', 'categories'));

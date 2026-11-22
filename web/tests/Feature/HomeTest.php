@@ -31,7 +31,7 @@ class HomeTest extends TestCase
             'category' => 'top',
             'color' => 'putih',
             'style' => 'casual',
-            'image_path' => null,
+            'image_url' => null,
             'product_url' => null,
         ]]]));
     }

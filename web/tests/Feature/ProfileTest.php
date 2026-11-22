@@ -18,22 +18,16 @@ class ProfileTest extends TestCase
     private function fakeProfile(?array $outfits = null, ?array $tryOns = null): void
     {
         Http::fake([
-            'http://fastapi.test/api/auth/me' => Http::response([
+            'http://fastapi.test/api/auth/me' => Http::response(['data' => [
                 'id' => 1,
                 'name' => 'Budi',
                 'email' => 'budi@example.com',
-                'created_at' => '2026-11-20T08:00:00Z',
-            ]),
+            ]]),
             'http://fastapi.test/api/outfits' => Http::response(['data' => $outfits ?? [
-                [
-                    'id' => 5,
-                    'name' => 'Casual Weekend',
-                    'created_at' => '2026-11-21T09:00:00Z',
-                    'items' => [['id' => 11, 'name' => 'Striped Tee', 'category' => 'top', 'image_path' => 'wardrobe/11.png']],
-                ],
+                ['id' => 5, 'name' => 'Casual Weekend', 'wardrobe_item_ids' => [11, 12]],
             ]]),
             'http://fastapi.test/api/try-on/history' => Http::response(['data' => $tryOns ?? [
-                ['id' => 9, 'catalog_item_id' => 1, 'wardrobe_item_id' => null, 'result_image_path' => 'try-on/9.png', 'created_at' => '2026-11-22T07:00:00Z'],
+                ['id' => 9, 'catalog_item_id' => 1, 'wardrobe_item_id' => null, 'image_url' => '/api/try-on/9/image', 'created_at' => '2026-11-22T07:00:00Z'],
             ]]),
             'http://fastapi.test/api/outfits/5' => Http::response(null, 204),
             'http://fastapi.test/api/try-on/9' => Http::response(null, 204),
@@ -49,15 +43,46 @@ class ProfileTest extends TestCase
             ->assertOk()
             ->assertSee('Budi')
             ->assertSee('budi@example.com')
-            ->assertSee('20 Nov 2026')
             ->assertSee('Casual Weekend')
-            ->assertSee('Striped Tee')
-            ->assertSee(route('media.show', ['path' => 'wardrobe/11.png']), false)
-            ->assertDontSee(route('media.show', ['path' => 'try-on/9.png']), false)
+            ->assertSee(route('media.wardrobe', ['id' => 11]), false)
+            ->assertDontSee(route('media.try-on', ['id' => 9]), false)
             ->assertSee('noindex, nofollow', false)
             ->assertSee('Keluar');
 
         Http::assertSent(fn (Request $request) => $request->hasHeader('Authorization', 'Bearer jwt-1'));
+    }
+
+    public function test_success_responses_are_unwrapped_from_data_envelope(): void
+    {
+        $this->fakeProfile();
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile')
+            ->assertOk()
+            ->assertSee('Budi')
+            ->assertSee('Casual Weekend');
+    }
+
+    public function test_outfit_card_shows_piece_count_and_wardrobe_images(): void
+    {
+        $this->fakeProfile();
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile')
+            ->assertOk()
+            ->assertSee('2 pakaian')
+            ->assertSee(route('media.wardrobe', ['id' => 11]), false)
+            ->assertSee(route('media.wardrobe', ['id' => 12]), false);
+    }
+
+    public function test_profile_without_created_at_hides_member_since(): void
+    {
+        $this->fakeProfile();
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile')
+            ->assertOk()
+            ->assertDontSee('Bergabung sejak');
     }
 
     public function test_try_on_tab_shows_history_with_download(): void
@@ -67,10 +92,10 @@ class ProfileTest extends TestCase
         $this->withSession(['api_token' => 'jwt-1'])
             ->get('/profile?tab=try-on')
             ->assertOk()
-            ->assertSee(route('media.show', ['path' => 'try-on/9.png']), false)
+            ->assertSee(route('media.try-on', ['id' => 9]), false)
             ->assertSee('Dari Catalog')
             ->assertSee('Unduh')
-            ->assertSee(route('media.show', ['path' => 'try-on/9.png', 'download' => 1]), false);
+            ->assertSee(route('media.try-on', ['id' => 9, 'download' => 1]), false);
     }
 
     public function test_unknown_tab_falls_back_to_outfit_tab(): void
@@ -102,7 +127,7 @@ class ProfileTest extends TestCase
     public function test_invalid_date_does_not_crash_page(): void
     {
         Http::fake([
-            'http://fastapi.test/api/auth/me' => Http::response(['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com', 'created_at' => 'bukan-tanggal']),
+            'http://fastapi.test/api/auth/me' => Http::response(['data' => ['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com', 'created_at' => 'bukan-tanggal']]),
             'http://fastapi.test/api/outfits' => Http::response(['data' => []]),
             'http://fastapi.test/api/try-on/history' => Http::response(['data' => []]),
         ]);
