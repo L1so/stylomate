@@ -21,41 +21,74 @@ class TryOnController extends Controller
         return response()->noContent();
     }
 
-    public function index(Request $request, FastApiClient $api) // GET /try-on?catalog_item_id=3
+    public function index(Request $request, FastApiClient $api) // GET /try-on?outfit_id=3
     {
         $result = session('try_on_result');
         $selected = old('item') ?? (is_array($result) ? ($result['item'] ?? null) : null);
         $notice = null;
 
-        $catalogTops = $api->catalog('', 'top');   // MVP: hanya kategori top
-        $wardrobeTops = array_values(array_filter($api->wardrobeItems(), fn (array $item) => ($item['category'] ?? null) === 'top'));
+        $supported = ['top', 'bottom'];
+        $catalogItems = array_values(array_filter(
+            $api->catalog(perPage: FastApiClient::CATALOG_MAX_PER_PAGE)['items'],
+            fn (array $item) => in_array($item['category'] ?? null, $supported, true),
+        ));
+        $wardrobeItems = array_values(array_filter(
+            $api->wardrobeItems(),
+            fn (array $item) => in_array($item['category'] ?? null, $supported, true),
+        ));
 
-        // Tombol "Try On" di Catalog / Wardrobe membawa id item lewat query string
+        // Outfit Try On hanya memakai tepat satu atasan dan satu bawahan. Item lain tetap ada di outfit,
+        // tetapi tidak dikirim ke model karena checkpoint saat ini hanya mendukung dua kategori tersebut.
+        $wardrobeById = collect($wardrobeItems)->keyBy('id');
+        $outfits = [];
+        foreach ($api->outfits() as $outfit) {
+            $items = collect($outfit['wardrobe_item_ids'] ?? [])
+                ->map(fn ($id) => is_numeric($id) ? $wardrobeById->get((int) $id) : null)
+                ->filter(fn ($item) => is_array($item))
+                ->values();
+            $tops = $items->where('category', 'top')->values();
+            $bottoms = $items->where('category', 'bottom')->values();
+
+            if ($tops->count() === 1 && $bottoms->count() === 1) {
+                $outfit['try_on_items'] = [$tops->first(), $bottoms->first()];
+                $outfits[] = $outfit;
+            }
+        }
+
+        // Tombol "Try On" di Catalog, Wardrobe, atau Profile membawa sumber lewat query string.
         $catalogId = $this->idFrom($request->query('catalog_item_id'));
         $wardrobeId = $this->idFrom($request->query('wardrobe_item_id'));
+        $outfitId = $this->idFrom($request->query('outfit_id'));
 
         if ($catalogId !== null) {
             $catalogItem = $api->catalogItem($catalogId);   // 404 ditangani handler global
 
-            if (($catalogItem['category'] ?? null) === 'top') {
-                if (! collect($catalogTops)->contains('id', $catalogItem['id'])) {
-                    array_unshift($catalogTops, $catalogItem);
+            if (in_array($catalogItem['category'] ?? null, $supported, true)) {
+                if (! collect($catalogItems)->contains('id', $catalogItem['id'])) {
+                    array_unshift($catalogItems, $catalogItem);
                 }
                 $selected ??= 'catalog:'.$catalogId;
             } else {
-                $notice = 'Try On saat ini baru mendukung atasan. Pilih atasan dari Catalog atau Wardrobe.';
+                $notice = 'Try On mendukung atasan, bawahan, atau outfit yang berisi satu atasan dan satu bawahan.';
             }
         } elseif ($wardrobeId !== null) {
-            if (collect($wardrobeTops)->contains('id', $wardrobeId)) {
+            if (collect($wardrobeItems)->contains('id', $wardrobeId)) {
                 $selected ??= 'wardrobe:'.$wardrobeId;
             } else {
-                $notice = 'Try On saat ini baru mendukung atasan. Pilih atasan dari Catalog atau Wardrobe.';
+                $notice = 'Try On mendukung atasan dan bawahan dari Wardrobe.';
+            }
+        } elseif ($outfitId !== null) {
+            if (collect($outfits)->contains('id', $outfitId)) {
+                $selected ??= 'outfit:'.$outfitId;
+            } else {
+                $notice = 'Outfit harus berisi tepat satu atasan dan satu bawahan agar dapat dipakai untuk Try On.';
             }
         }
 
         return view('try-on.index', [
-            'catalogTops' => $catalogTops,
-            'wardrobeTops' => $wardrobeTops,
+            'catalogItems' => $catalogItems,
+            'wardrobeItems' => $wardrobeItems,
+            'outfits' => $outfits,
             'selected' => is_string($selected) ? $selected : null,
             'notice' => $notice,
             'result' => $result,
@@ -64,10 +97,10 @@ class TryOnController extends Controller
 
     public function generate(GenerateTryOnRequest $request, FastApiClient $api) // POST /try-on/generate (multipart)
     {
-        [$wardrobeId, $catalogId] = $request->selectedIds();
+        [$wardrobeId, $catalogId, $outfitId] = $request->selectedIds();
 
         try {
-            $result = $api->generateTryOn($request->file('person_image'), $wardrobeId, $catalogId);
+            $result = $api->generateTryOn($request->file('person_image'), $wardrobeId, $catalogId, $outfitId);
         } catch (FastApiException $e) {
             if ($e->status === 401) {
                 throw $e;   // sesi habis: ditangani handler global

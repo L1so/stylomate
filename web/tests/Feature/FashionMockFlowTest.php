@@ -87,7 +87,7 @@ class FashionMockFlowTest extends TestCase
     {
         $this->get('/try-on?catalog_item_id=1')->assertOk()->assertSee('Kemeja Linen Oversize');
 
-        $this->post('/try-on/generate', ['item' => 'catalog:1', 'person_image' => UploadedFile::fake()->image('aku.png')])
+        $this->post('/try-on/generate', ['item' => 'catalog:1', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.png')])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 3 && $result['generation_id'] === 3);
 
@@ -104,22 +104,25 @@ class FashionMockFlowTest extends TestCase
 
     public function test_try_on_generate_with_wardrobe_top(): void
     {
-        $this->post('/try-on/generate', ['item' => 'wardrobe:13', 'person_image' => UploadedFile::fake()->image('aku.jpg')])
+        $this->post('/try-on/generate', ['item' => 'wardrobe:13', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.jpg')])
             ->assertSessionHas('try_on_result');
     }
 
-    public function test_try_on_rejects_non_top_items_like_the_real_backend(): void
+    public function test_try_on_accepts_lower_body_items_and_saved_outfits(): void
     {
-        $this->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:5', 'person_image' => UploadedFile::fake()->image('aku.png')])
-            ->assertSessionHasErrors('catalog_item_id');
+        $this->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:5', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.png')])
+            ->assertSessionHas('try_on_result');
 
-        $this->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:12', 'person_image' => UploadedFile::fake()->image('aku.png')])
-            ->assertSessionHasErrors('wardrobe_item_id');
+        $this->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:12', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.png')])
+            ->assertSessionHas('try_on_result');
+
+        $this->from('/try-on')->post('/try-on/generate', ['item' => 'outfit:1', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.png')])
+            ->assertSessionHas('try_on_result');
     }
 
     public function test_unsaved_preview_can_be_deleted_via_existing_route(): void
     {
-        $this->post('/try-on/generate', ['item' => 'catalog:1', 'person_image' => UploadedFile::fake()->image('aku.png')]);
+        $this->post('/try-on/generate', ['item' => 'catalog:1', 'privacy_consent' => '1', 'person_image' => UploadedFile::fake()->image('aku.png')]);
 
         $this->delete('/try-on/3')->assertRedirect(route('profile.index'));
         // Form POST yang gagal (404 dari FastAPI) kembali ke halaman sebelumnya dengan pesan error

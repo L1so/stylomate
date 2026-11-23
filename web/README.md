@@ -22,7 +22,7 @@ Buka http://localhost:8080. FastAPI berjalan di `FASTAPI_BASE_URL` (default http
 | `FASTAPI_BASE_URL` | Base URL FastAPI **termasuk** `/api`, misalnya `http://127.0.0.1:8000/api` |
 | `FASTAPI_TIMEOUT` | Timeout request ke FastAPI (detik) |
 | `FASTAPI_AI_TIMEOUT` | Timeout request AI Try-On (detik, default 330; harus lebih besar dari `AI_TIMEOUT_SECONDS` FastAPI) |
-| `FASTAPI_USE_MOCK` | `true` = data contoh tanpa FastAPI (akun demo `demo@stylomate.test` / `password123`); otomatis nonaktif di production |
+| `FASTAPI_USE_MOCK` | `true` = data contoh tanpa FastAPI (akun demo `demo@stylomate.id` / `password123`); otomatis nonaktif di production |
 
 ## Integrasi FastAPI
 

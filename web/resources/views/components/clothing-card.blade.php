@@ -7,7 +7,7 @@
 ])>
     <{{ $wrapperTag }} @if (!empty($href)) href="{{ $href }}" @endif class="flex flex-col gap-3">
         @if (!empty($item['image_url']))
-            <img src="{{ $item['image_url'] }}" alt="{{ $item['name'] }}" width="300" height="400" loading="lazy" class="aspect-[3/4] w-full rounded-sm bg-grad-photo object-cover">
+            <img src="{{ $item['thumbnail_url'] ?? $item['image_url'] }}" alt="{{ $item['name'] }}" width="300" height="400" loading="lazy" class="aspect-[3/4] w-full rounded-sm bg-grad-photo object-cover">
         @else
             <div class="flex aspect-[3/4] w-full items-center justify-center rounded-sm bg-grad-photo text-sm text-taupe">Belum ada foto</div>
         @endif

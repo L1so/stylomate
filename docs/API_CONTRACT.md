@@ -19,26 +19,26 @@ Base URL: `http://127.0.0.1:8000/api` (Laravel → FastAPI, never browser → Fa
 | POST | `/auth/register` | JSON `name,email,password`; password 8–128 chars; 201 user `{id,name,email}`; no auto-login |
 | POST | `/auth/login` | JSON `email,password`; data `{access_token,token_type,expires_in,user}` |
 | GET | `/auth/me` | User `{id,name,email}` |
-| GET | `/catalog` | Optional `q`, `category`; array of catalog items |
+| GET | `/catalog` | Optional `q`, `category`, `limit` (1–48, default 12), `offset` (0–100000, default 0); returns `data` array plus `meta: {total, limit, offset}` |
 | GET | `/catalog/{id}` | One catalog item |
-| GET | `/catalog/{id}/image` | Public image bytes |
-| GET | `/wardrobe` | Current user's items |
+| GET | `/catalog/{id}/image` | Public image bytes; `?size=thumb` returns a max 600×800 JPEG generated on first request. `Cache-Control: public, max-age=86400`. Catalog `image_url`/`thumbnail_url` carry `v=<version>` that changes when the stored image changes |
+| GET | `/wardrobe` | Current user's items; `limit` (1–100, default 100), `offset` (0–100000, default 0); returns `data` array plus `meta: {total, limit, offset}` |
 | POST | `/wardrobe` | Multipart `name,category,color,style,image`; 201 item |
 | GET | `/wardrobe/{id}` | Owned item |
 | PATCH | `/wardrobe/{id}` | Multipart optional `name,category,color,style,image`; omitted values retained |
 | DELETE | `/wardrobe/{id}` | 204; 409 when referenced by outfit or try-on |
-| GET | `/wardrobe/{id}/image` | Owned image bytes |
-| GET | `/outfits` | Array `{id,name,wardrobe_item_ids}` |
+| GET | `/wardrobe/{id}/image` | Owned image bytes; `?size=thumb` returns a max 600×800 JPEG. `Cache-Control: private, no-store` |
+| GET | `/outfits` | Array `{id,name,wardrobe_item_ids}`; same `limit` (1–100, default 100), `offset` (0–100000, default 0) and `meta: {total, limit, offset}` as `/wardrobe` |
 | POST | `/outfits` | JSON `name,wardrobe_item_ids`; must include owned top and bottom; 201 outfit |
 | DELETE | `/outfits/{id}` | 204 |
 | GET | `/recommendations?style=casual` | Backend-owned rules: matching style, top/bottom pairs; prioritize same/neutral colors, max 5. Empty list + meta message when insufficient |
-| POST | `/try-on/generate` | Multipart `person_image` and exactly one of `wardrobe_item_id` / `catalog_item_id`; only `top` supported |
+| POST | `/try-on/generate` | Multipart `person_image` and exactly one of `wardrobe_item_id` / `catalog_item_id` / `outfit_id`. Single items support `top` and `bottom`; an outfit must contain exactly one of each and runs two AI stages. |
 | POST | `/try-on/save` | JSON `generation_id`; idempotently marks owned preview saved |
-| GET | `/try-on/history` | Saved results only |
+| GET | `/try-on/history` | Saved results only; same `limit` (1–100, default 100), `offset` (0–100000, default 0) and `meta: {total, limit, offset}` as `/wardrobe` |
 | GET | `/try-on/{id}/image` | Owned result/preview bytes |
 | DELETE | `/try-on/{id}` | 204; deletes saved result or active preview |
 
-Wardrobe item: `{id,name,category,color,style,image_url}`. Catalog additionally has `brand,product_url`. Try-on result: `{id,generation_id,saved,image_url,wardrobe_item_id,catalog_item_id}`.
+Wardrobe item: `{id,name,category,color,style,image_url}`. Catalog additionally has `brand,product_url,thumbnail_url`. Try-on result: `{id,generation_id,saved,image_url,wardrobe_item_id,catalog_item_id,outfit_id}`; exactly one source ID is non-null.
 
 ## Laravel implementation notes
 
@@ -51,10 +51,10 @@ Wardrobe item: `{id,name,category,color,style,image_url}`. Catalog additionally 
 
 ## AI and privacy lifecycle
 
-FastAPI calls private AI `POST /generate` with `person_image`, `garment_image`, `category=upper-body`. Optional `AI_SERVICE_TOKEN` adds a bearer header; member 1 must enforce it if configured. AI success is JPEG/PNG bytes, not JSON. No inference implementation is included here.
+FastAPI calls private AI `POST /generate` with `person_image`, `garment_image`, and `category=upper-body|lower-body`. Outfit generation applies the bottom first, then applies the top to that preview. Optional `AI_SERVICE_TOKEN` adds a bearer header. Successful AI requests return JPEG or PNG bytes.
 
 Person photos are held in request memory and never persisted by this backend. AI service must apply its own temporary-input cleanup policy. Generated output is temporarily stored for preview; `saved=false`, maximum one hour access. User explicitly saves it using its server-issued generation ID; clients cannot supply arbitrary image paths/URLs. Saved output persists until deleted. Run `python -m app.maintenance cleanup-previews` every 15 minutes to remove expired unsaved rows/files; the operator must configure this schedule.
 
 ## Known MVP limits
 
-No pagination, password reset, refresh token, public deployment rate limiting or asynchronous inference queue yet. Catalog seed images are placeholders. SQLite tests verify application flows, but PostgreSQL runtime, real AI output and Blade integration require environment-specific verification.
+Password reset, refresh token, public deployment rate limiting or asynchronous inference queue yet. Catalog seed images are placeholders. SQLite tests verify application flows, but PostgreSQL runtime, real AI output and Blade integration require environment-specific verification.

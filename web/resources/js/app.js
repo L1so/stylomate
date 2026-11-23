@@ -25,6 +25,21 @@ if (warmupUrl && csrfToken) {
 document.addEventListener('submit', (event) => {
     const form = event.target;
 
+    const consentDialog = form.dataset.consentDialog ? document.getElementById(form.dataset.consentDialog) : null;
+    if (consentDialog && !form.dataset.consented) {
+        event.preventDefault();
+        consentDialog.returnValue = '';
+        consentDialog.addEventListener('close', () => {
+            if (consentDialog.returnValue === 'confirm') {
+                form.dataset.consented = 'true';
+                form.querySelector('input[name="privacy_consent"]').value = '1';
+                form.requestSubmit();
+            }
+        }, { once: true });
+        consentDialog.showModal();
+        return;
+    }
+
     if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
         event.preventDefault();
         return;

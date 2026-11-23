@@ -33,7 +33,7 @@ class OutfitTest extends TestCase
 
     public function test_builder_groups_wardrobe_items_by_category(): void
     {
-        Http::fake(['*/wardrobe' => Http::response($this->wardrobe())]);
+        Http::fake(['*/wardrobe?*' => Http::response($this->wardrobe())]);
 
         $this->asUser()->get('/mix-match')
             ->assertOk()
@@ -44,7 +44,7 @@ class OutfitTest extends TestCase
 
     public function test_builder_shows_empty_state_when_wardrobe_is_empty(): void
     {
-        Http::fake(['*/wardrobe' => Http::response(['data' => []])]);
+        Http::fake(['*/wardrobe?*' => Http::response(['data' => []])]);
 
         $this->asUser()->get('/mix-match')->assertOk()->assertSee('Wardrobe kamu masih kosong')->assertDontSee('Simpan Outfit');
     }
@@ -52,7 +52,7 @@ class OutfitTest extends TestCase
     public function test_store_posts_name_and_item_ids_as_json(): void
     {
         Http::fake([
-            '*/wardrobe' => Http::response($this->wardrobe()),
+            '*/wardrobe?*' => Http::response($this->wardrobe()),
             '*/outfits' => Http::response(['data' => ['id' => 9]], 201),
         ]);
 
@@ -68,7 +68,7 @@ class OutfitTest extends TestCase
 
     public function test_store_requires_at_least_one_top_and_one_bottom(): void
     {
-        Http::fake(['*/wardrobe' => Http::response($this->wardrobe())]);
+        Http::fake(['*/wardrobe?*' => Http::response($this->wardrobe())]);
 
         foreach ([['5', '7'], ['6', '8'], ['5', '8']] as $ids) {
             $this->asUser()->from('/mix-match')
@@ -82,7 +82,7 @@ class OutfitTest extends TestCase
 
     public function test_store_rejects_items_not_in_users_wardrobe(): void
     {
-        Http::fake(['*/wardrobe' => Http::response($this->wardrobe())]);
+        Http::fake(['*/wardrobe?*' => Http::response($this->wardrobe())]);
 
         $this->asUser()->from('/mix-match')
             ->post('/outfits', ['name' => 'Milik orang lain', 'wardrobe_item_ids' => ['5', '999']])
@@ -108,7 +108,7 @@ class OutfitTest extends TestCase
     public function test_store_shows_fastapi_422_error_on_the_form(): void
     {
         Http::fake([
-            '*/wardrobe' => Http::response($this->wardrobe()),
+            '*/wardrobe?*' => Http::response($this->wardrobe()),
             '*/outfits' => Http::response(['error' => ['message' => 'x', 'fields' => [['field' => 'name', 'message' => 'Nama outfit sudah dipakai.']]]], 422),
         ]);
 

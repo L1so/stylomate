@@ -6,6 +6,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 from secrets import compare_digest
+from threading import Lock
 
 import spaces
 from gradio import Error, Server
@@ -13,8 +14,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from PIL import Image
 
-from app import MAX_BYTES, decode_image_data
-from inference import DEFAULT_MODEL_DIR, load_model
+from app import LOWER_BODY_NOT_VISIBLE, MAX_BYTES, decode_image_data
+from inference import DEFAULT_MODEL_DIR, LowerBodyNotVisible, load_model
 from prepare_assets import prepare_assets
 
 
@@ -23,6 +24,7 @@ prepare_assets(model_dir)
 model = load_model(zerogpu=True)
 token = os.environ.get("AI_SERVICE_TOKEN", "")
 server = Server()
+generation_lock = Lock()
 
 
 @server.middleware("http")
@@ -41,11 +43,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@spaces.GPU(duration=45)
-def render(person: Image.Image, garment: Image.Image) -> str:
-    with model(person, garment) as result, BytesIO() as output:
-        result.save(output, format="JPEG", quality=90)
-        return b64encode(output.getvalue()).decode("ascii")
+@spaces.GPU(duration=60)
+def render(person: Image.Image, garment: Image.Image, category: str) -> str:
+    if category not in {"upper-body", "lower-body"}:
+        raise Error("Category must be upper-body or lower-body.")
+    if not generation_lock.acquire(blocking=False):
+        raise Error("AI service is busy. Try again shortly.")
+    try:
+        with model(person, garment, category) as result, BytesIO() as output:
+            result.save(output, format="JPEG", quality=90)
+            return b64encode(output.getvalue()).decode("ascii")
+    except LowerBodyNotVisible:
+        raise Error(LOWER_BODY_NOT_VISIBLE) from None
+    finally:
+        generation_lock.release()
 
 
 def decode(encoded: str) -> Image.Image:
@@ -59,10 +70,10 @@ def decode(encoded: str) -> Image.Image:
 
 @server.api(name="generate")
 def generate(person_image: str, garment_image: str, category: str) -> str:
-    if category != "upper-body":
-        raise Error("Only upper-body try-on is supported.")
+    if category not in {"upper-body", "lower-body"}:
+        raise Error("Only upper-body and lower-body try-on are supported.")
     with decode(person_image) as person, decode(garment_image) as garment:
-        return render(person, garment)
+        return render(person, garment, category)
 
 
 if __name__ == "__main__":

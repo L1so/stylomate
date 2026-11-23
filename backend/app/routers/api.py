@@ -1,17 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select, delete, case
+from sqlalchemy import select, delete, case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, WardrobeItem, CatalogItem, Outfit, OutfitItem, TryOnResult
 from app.schemas import Register, Login, OutfitCreate, SaveResult, Category, Style
 from app.services.security import current_user, passwords, issue_token
-from app.services.ai import ai_headers, generate_zerogpu, probe_ai, wait_for_ai
-from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, remove_image
+from app.services.ai import (
+    LOWER_BODY_NOT_VISIBLE, ai_headers, generate_zerogpu, lower_body_validation_error, probe_ai, wait_for_ai,
+)
+from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, sized_image_path, remove_image
 from app.config import settings
 import httpx
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 router = APIRouter(prefix='/api')
 
@@ -32,11 +36,17 @@ def garment(item, kind):
     result = {k: getattr(item, k) for k in ('id', 'name', 'category', 'color', 'style')}
     result['image_url'] = f'/api/{kind}/{item.id}/image'
     if kind == 'catalog':
-        result.update(brand=item.brand, product_url=item.product_url)
+        version = Path(item.image_path).stem[:8]
+        result.update(
+            brand=item.brand,
+            product_url=item.product_url,
+            image_url=f'/api/catalog/{item.id}/image?v={version}',
+            thumbnail_url=f'/api/catalog/{item.id}/image?size=thumb&v={version}',
+        )
     return result
 
-def outfit_data(db, outfit):
-    category_order = case(
+def outfit_category_order():
+    return case(
         (WardrobeItem.category == 'top', 1),
         (WardrobeItem.category == 'bottom', 2),
         (WardrobeItem.category == 'shoes', 3),
@@ -44,6 +54,15 @@ def outfit_data(db, outfit):
         else_=99,
     )
 
+def outfit_items(db, outfit):
+    return list(db.scalars(
+        select(WardrobeItem)
+        .join(OutfitItem, OutfitItem.wardrobe_item_id == WardrobeItem.id)
+        .where(OutfitItem.outfit_id == outfit.id)
+        .order_by(outfit_category_order(), OutfitItem.id)
+    ))
+
+def outfit_data(db, outfit):
     query = (
         select(OutfitItem.wardrobe_item_id)
         .join(
@@ -51,7 +70,7 @@ def outfit_data(db, outfit):
             WardrobeItem.id == OutfitItem.wardrobe_item_id,
         )
         .where(OutfitItem.outfit_id == outfit.id)
-        .order_by(category_order, OutfitItem.id)
+        .order_by(outfit_category_order(), OutfitItem.id)
     )
 
     ids = list(db.scalars(query))
@@ -63,7 +82,20 @@ def outfit_data(db, outfit):
     }
 
 def result_data(result):
-    return {'generation_id': result.id, 'id': result.id, 'saved': result.saved, 'image_url': f'/api/try-on/{result.id}/image', 'wardrobe_item_id': result.wardrobe_item_id, 'catalog_item_id': result.catalog_item_id}
+    return {
+        'generation_id': result.id,
+        'id': result.id,
+        'saved': result.saved,
+        'image_url': f'/api/try-on/{result.id}/image',
+        'wardrobe_item_id': result.wardrobe_item_id,
+        'catalog_item_id': result.catalog_item_id,
+        'outfit_id': result.outfit_id,
+    }
+
+def paginated(db, query, limit, offset, serialize):
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
+    rows = db.scalars(query.limit(limit).offset(offset))
+    return {'data': [serialize(row) for row in rows], 'meta': {'total': total, 'limit': limit, 'offset': offset}}
 
 @router.post('/auth/register', status_code=201)
 def register(body: Register, db: Session = Depends(get_db)):
@@ -88,13 +120,20 @@ def me(user: User = Depends(current_user)):
     return {'data': profile(user)}
 
 @router.get('/catalog')
-def catalog(q: str = '', category: Category | None = None, db: Session = Depends(get_db)):
-    query = select(CatalogItem).order_by(CatalogItem.id)
+def catalog(
+    q: str = '',
+    category: Category | None = None,
+    limit: int = Query(12, ge=1, le=48),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+):
+    filters = []
     if q:
-        query = query.where(CatalogItem.name.ilike('%' + q[:100] + '%'))
+        filters.append(CatalogItem.name.ilike('%' + q[:100] + '%'))
     if category:
-        query = query.where(CatalogItem.category == category)
-    return {'data': [garment(i, 'catalog') for i in db.scalars(query)]}
+        filters.append(CatalogItem.category == category)
+    query = select(CatalogItem).where(*filters).order_by(CatalogItem.id)
+    return paginated(db, query, limit, offset, lambda item: garment(item, 'catalog'))
 
 def catalog_item(db, identity):
     item = db.get(CatalogItem, identity)
@@ -107,12 +146,19 @@ def catalog_detail(identity: int, db: Session = Depends(get_db)):
     return {'data': garment(catalog_item(db, identity), 'catalog')}
 
 @router.get('/catalog/{identity}/image')
-def catalog_image(identity: int, db: Session = Depends(get_db)):
-    return FileResponse(image_path(catalog_item(db, identity).image_path), media_type='image/jpeg')
+def catalog_image(identity: int, size: Literal['full', 'thumb'] = 'full', db: Session = Depends(get_db)):
+    name = catalog_item(db, identity).image_path
+    return FileResponse(sized_image_path(name, size), media_type='image/jpeg', headers={'Cache-Control': 'public, max-age=86400'})
 
 @router.get('/wardrobe')
-def wardrobe(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [garment(i, 'wardrobe') for i in db.scalars(select(WardrobeItem).where(WardrobeItem.user_id == user.id).order_by(WardrobeItem.id))]}
+def wardrobe(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(WardrobeItem).where(WardrobeItem.user_id == user.id).order_by(WardrobeItem.id)
+    return paginated(db, query, limit, offset, lambda item: garment(item, 'wardrobe'))
 
 @router.post('/wardrobe', status_code=201)
 def add_wardrobe(name: str = Form(min_length=1, max_length=100), category: Category = Form(), color: str = Form(min_length=1, max_length=30), style: Style = Form(), image: UploadFile = File(), db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -132,8 +178,8 @@ def wardrobe_detail(identity: int, db: Session = Depends(get_db), user: User = D
     return {'data': garment(owned(db, WardrobeItem, identity, user), 'wardrobe')}
 
 @router.get('/wardrobe/{identity}/image')
-def wardrobe_image(identity: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return FileResponse(image_path(owned(db, WardrobeItem, identity, user).image_path), media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
+def wardrobe_image(identity: int, size: Literal['full', 'thumb'] = 'full', db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return FileResponse(sized_image_path(owned(db, WardrobeItem, identity, user).image_path, size), media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
 
 @router.patch('/wardrobe/{identity}')
 def update_wardrobe(identity: int, name: str | None = Form(None, min_length=1, max_length=100), category: Category | None = Form(None), color: str | None = Form(None, min_length=1, max_length=30), style: Style | None = Form(None), image: UploadFile | None = File(None), db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -168,8 +214,14 @@ def delete_wardrobe(identity: int, db: Session = Depends(get_db), user: User = D
     return Response(status_code=204)
 
 @router.get('/outfits')
-def outfits(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [outfit_data(db, i) for i in db.scalars(select(Outfit).where(Outfit.user_id == user.id).order_by(Outfit.id))]}
+def outfits(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(Outfit).where(Outfit.user_id == user.id).order_by(Outfit.id)
+    return paginated(db, query, limit, offset, lambda outfit: outfit_data(db, outfit))
 
 @router.post('/outfits', status_code=201)
 def add_outfit(body: OutfitCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -213,39 +265,93 @@ def warmup(user: User = Depends(current_user)):
             pass
     return Response(status_code=204)
 
+def ai_category(item):
+    if item.category == 'top':
+        return 'upper-body'
+    if item.category == 'bottom':
+        return 'lower-body'
+    raise HTTPException(422, 'Try-on supports tops and bottoms only')
+
+def generate_ai_image(client, person, garment, category):
+    if settings.ai_hf_zerogpu:
+        data = generate_zerogpu(client, person, garment, MAX_BYTES, category)
+    else:
+        with client.stream(
+            'POST',
+            settings.ai_service_url.rstrip('/') + '/generate',
+            files={
+                'person_image': ('person.jpg', person, 'image/jpeg'),
+                'garment_image': ('garment.jpg', garment, 'image/jpeg'),
+            },
+            data={'category': category},
+            headers=ai_headers(),
+        ) as response:
+            if response.status_code == 422 and response.headers.get('X-StyloMate-Error') == LOWER_BODY_NOT_VISIBLE:
+                raise lower_body_validation_error()
+            response.raise_for_status()
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > MAX_BYTES:
+                    raise HTTPException(502, 'AI returned an oversized image')
+
+    try:
+        return normalize_image(bytes(data))
+    except HTTPException:
+        raise HTTPException(502, 'AI returned an invalid image') from None
+
 @router.post('/try-on/generate', status_code=201)
-def generate(person_image: UploadFile = File(), wardrobe_item_id: int | None = Form(None), catalog_item_id: int | None = Form(None), db: Session = Depends(get_db), user: User = Depends(current_user)):
-    if (wardrobe_item_id is None) == (catalog_item_id is None):
-        raise HTTPException(422, 'Choose exactly one garment source')
-    item = owned(db, WardrobeItem, wardrobe_item_id, user) if wardrobe_item_id is not None else catalog_item(db, catalog_item_id)
-    if item.category != 'top':
-        raise HTTPException(422, 'MVP try-on supports tops only')
+def generate(
+    person_image: UploadFile = File(),
+    wardrobe_item_id: int | None = Form(None),
+    catalog_item_id: int | None = Form(None),
+    outfit_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    sources = [wardrobe_item_id, catalog_item_id, outfit_id]
+    if sum(value is not None for value in sources) != 1:
+        raise HTTPException(422, 'Choose exactly one garment or outfit source')
+
+    if outfit_id is not None:
+        outfit = owned(db, Outfit, outfit_id, user)
+        items = outfit_items(db, outfit)
+        tops = [item for item in items if item.category == 'top']
+        bottoms = [item for item in items if item.category == 'bottom']
+        if len(tops) != 1 or len(bottoms) != 1:
+            raise HTTPException(422, 'An outfit try-on requires exactly one top and one bottom')
+        # Inpaint the bottom on the original pose. Upper-body blending preserves that edit.
+        stages = [
+            (bottoms[0], 'lower-body'),
+            (tops[0], 'upper-body'),
+        ]
+    else:
+        item = owned(db, WardrobeItem, wardrobe_item_id, user) if wardrobe_item_id is not None else catalog_item(db, catalog_item_id)
+        stages = [(item, ai_category(item))]
+
     person = normalize_image(person_image.file.read(MAX_BYTES + 1))
-    clothes = image_path(item.image_path).read_bytes()
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.ai_timeout_seconds, connect=5)) as client:
             if settings.ai_cold_start_timeout_seconds:
                 wait_for_ai(client)
-            if settings.ai_hf_zerogpu:
-                data = generate_zerogpu(client, person, clothes, MAX_BYTES)
-            else:
-                with client.stream('POST', settings.ai_service_url.rstrip('/') + '/generate', files={'person_image': ('person.jpg', person, 'image/jpeg'), 'garment_image': ('garment.jpg', clothes, 'image/jpeg')}, data={'category': 'upper-body'}, headers=ai_headers()) as response:
-                    response.raise_for_status()
-                    data = bytearray()
-                    for chunk in response.iter_bytes():
-                        data.extend(chunk)
-                        if len(data) > MAX_BYTES:
-                            raise HTTPException(502, 'AI returned an oversized image')
-        try:
-            normalized = normalize_image(bytes(data))
-        except HTTPException:
-            raise HTTPException(502, 'AI returned an invalid image')
+            normalized = person
+            for item, category in stages:
+                clothes = image_path(item.image_path).read_bytes()
+                normalized = generate_ai_image(client, normalized, clothes, category)
     except httpx.TimeoutException:
         raise HTTPException(504, 'AI service timed out; please retry')
     except httpx.HTTPError:
         raise HTTPException(503, 'AI service unavailable; please retry')
+
     path = store_image(normalized)
-    result = TryOnResult(user_id=user.id, wardrobe_item_id=wardrobe_item_id, catalog_item_id=catalog_item_id, result_image_path=path, saved=False)
+    result = TryOnResult(
+        user_id=user.id,
+        wardrobe_item_id=wardrobe_item_id,
+        catalog_item_id=catalog_item_id,
+        outfit_id=outfit_id,
+        result_image_path=path,
+        saved=False,
+    )
     db.add(result)
     try:
         db.commit()
@@ -263,8 +369,14 @@ def save_result(body: SaveResult, db: Session = Depends(get_db), user: User = De
     return {'data': result_data(result)}
 
 @router.get('/try-on/history')
-def history(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [result_data(i) for i in db.scalars(select(TryOnResult).where(TryOnResult.user_id == user.id, TryOnResult.saved.is_(True)).order_by(TryOnResult.id.desc()))]}
+def history(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(TryOnResult).where(TryOnResult.user_id == user.id, TryOnResult.saved.is_(True)).order_by(TryOnResult.id.desc())
+    return paginated(db, query, limit, offset, result_data)
 
 @router.get('/try-on/{identity}/image')
 def result_image(identity: int, db: Session = Depends(get_db), user: User = Depends(current_user)):

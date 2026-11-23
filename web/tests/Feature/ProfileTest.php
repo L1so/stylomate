@@ -23,10 +23,10 @@ class ProfileTest extends TestCase
                 'name' => 'Budi',
                 'email' => 'budi@example.com',
             ]]),
-            'http://fastapi.test/api/outfits' => Http::response(['data' => $outfits ?? [
+            'http://fastapi.test/api/outfits?*' => Http::response(['data' => $outfits ?? [
                 ['id' => 5, 'name' => 'Casual Weekend', 'wardrobe_item_ids' => [11, 12]],
             ]]),
-            'http://fastapi.test/api/try-on/history' => Http::response(['data' => $tryOns ?? [
+            'http://fastapi.test/api/try-on/history?*' => Http::response(['data' => $tryOns ?? [
                 ['id' => 9, 'catalog_item_id' => 1, 'wardrobe_item_id' => null, 'image_url' => '/api/try-on/9/image', 'created_at' => '2026-11-22T07:00:00Z'],
             ]]),
             'http://fastapi.test/api/outfits/5' => Http::response(null, 204),
@@ -71,8 +71,10 @@ class ProfileTest extends TestCase
             ->get('/profile')
             ->assertOk()
             ->assertSee('2 pakaian')
-            ->assertSee(route('media.wardrobe', ['id' => 11]), false)
-            ->assertSee(route('media.wardrobe', ['id' => 12]), false);
+            ->assertSee(route('media.wardrobe', ['id' => 11, 'size' => 'thumb']), false)
+            ->assertSee(route('media.wardrobe', ['id' => 12, 'size' => 'thumb']), false)
+            ->assertSee(route('try-on.index', ['outfit_id' => 5]), false)
+            ->assertSee('Try On');
     }
 
     public function test_profile_without_created_at_hides_member_since(): void
@@ -96,6 +98,22 @@ class ProfileTest extends TestCase
             ->assertSee('Dari Catalog')
             ->assertSee('Unduh')
             ->assertSee(route('media.try-on', ['id' => 9, 'download' => 1]), false);
+    }
+
+    public function test_try_on_tab_labels_mix_and_match_source(): void
+    {
+        $this->fakeProfile(null, [[
+            'id' => 10,
+            'outfit_id' => 5,
+            'catalog_item_id' => null,
+            'wardrobe_item_id' => null,
+            'image_url' => '/api/try-on/10/image',
+        ]]);
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile?tab=try-on')
+            ->assertOk()
+            ->assertSee('Dari Mix &amp; Match', false);
     }
 
     public function test_unknown_tab_falls_back_to_outfit_tab(): void
@@ -128,8 +146,8 @@ class ProfileTest extends TestCase
     {
         Http::fake([
             'http://fastapi.test/api/auth/me' => Http::response(['data' => ['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com', 'created_at' => 'bukan-tanggal']]),
-            'http://fastapi.test/api/outfits' => Http::response(['data' => []]),
-            'http://fastapi.test/api/try-on/history' => Http::response(['data' => []]),
+            'http://fastapi.test/api/outfits?*' => Http::response(['data' => []]),
+            'http://fastapi.test/api/try-on/history?*' => Http::response(['data' => []]),
         ]);
 
         $this->withSession(['api_token' => 'jwt-1'])->get('/profile')->assertOk();

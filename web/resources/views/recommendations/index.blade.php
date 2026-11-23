@@ -30,7 +30,7 @@
                                 <div class="flex flex-col gap-2">
                                     <div class="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-sm bg-grad-photo">
                                         @if (!empty($piece['image_url']))
-                                            <img src="{{ $piece['image_url'] }}" alt="{{ $piece['name'] ?? 'Pakaian' }}" width="300" height="400" loading="lazy" class="h-full w-full object-cover">
+                                            <img src="{{ $piece['thumbnail_url'] ?? $piece['image_url'] }}" alt="{{ $piece['name'] ?? 'Pakaian' }}" width="300" height="400" loading="lazy" class="h-full w-full object-cover">
                                         @else
                                             <span class="text-xs text-taupe">Belum ada foto</span>
                                         @endif

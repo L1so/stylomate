@@ -1,10 +1,10 @@
 # StyloMate AI Service
 
-Upper-body virtual try-on for the StyloMate FastAPI backend. The service loads the pretrained [CatVTON MaskFree VITON-HD 512 checkpoint](https://huggingface.co/zhengchong/CatVTON-MaskFree/tree/main/vitonhd-16k-512) once and generates a 384×512 preview. The backend owns preview storage and saved history.
+Upper- and lower-body virtual try-on for the StyloMate FastAPI backend. Previews are 384×512. Tops use CatVTON MaskFree VITON-HD. For bottoms, SegFormer locates pants, skirts and legs in the person photo so CatVTON can inpaint that region with the selected garment. The service blends edits into the source photo using the segmented clothing region. During outfit try-on, FastAPI sends the result of the bottom pass into the top pass so the bottom is generated on the original pose and preserved by the upper-body blend. The two pipelines share a VAE.
 
 ## Setup
 
-Use Python 3.12 and an NVIDIA driver compatible with CUDA 12.8. Run these commands from `ai-service/`.
+Use Python 3.12 and an NVIDIA driver compatible with CUDA 12.8. The two pipelines were tested together on a 6 GB RTX 3060 Laptop GPU. Run these commands from `ai-service/`.
 
 ```bash
 python3.12 -m venv .venv
@@ -14,7 +14,7 @@ python -m pip install -r requirements.txt
 python prepare_assets.py
 ```
 
-The setup downloads roughly 2.3 GB of model files and the pinned upstream inference code into `.cache/catvton/`. The service reads these local assets during startup. The [asset manifest](prepare_assets.py) records each upstream revision. Use `HF_HUB_DISABLE_XET=1` for the download if the Xet connection fails. If Hugging Face requires authentication, set `HF_TOKEN` in the download process environment.
+The setup downloads roughly 4.3 GB of model files and the pinned upstream inference code into `.cache/catvton/`. For an existing install, run `python prepare_assets.py` again and restart the worker. The [asset manifest](prepare_assets.py) records each upstream revision. Use `HF_HUB_DISABLE_XET=1` if the Xet connection fails.
 
 ## Start and verify
 
@@ -23,7 +23,8 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
 - `GET /health` returns `200 {"status":"ok"}` once the model is loaded.
-- `POST /generate` accepts multipart JPEG/PNG `person_image` and `garment_image` files and the form field `category=upper-body`. Each file can be up to 10 MiB and 20 megapixels. Success is raw `image/jpeg` bytes under the backend's 10 MiB response limit.
+- `POST /generate` accepts multipart JPEG/PNG `person_image` and `garment_image` files and `category=upper-body` or `category=lower-body`. Each file can be up to 10 MiB and 20 megapixels. Success is raw `image/jpeg` bytes under the backend's 10 MiB response limit.
+- Use a photo with the waist and legs in frame for bottoms and outfits. If the parser cannot find a usable lower-body region, the request returns a photo validation error.
 - Set the same `AI_SERVICE_TOKEN` in the AI and backend environments to require a bearer token for generation. For a separate host, bind or forward the service over a private network the backend can reach.
 - `AI_MODEL_DIR` overrides the local asset path. `AI_INFERENCE_STEPS` defaults to 25 and accepts values from 1 to 50. Run one worker per GPU with one generation in flight. Startup and inference timings are logged without photo contents or filenames.
 
@@ -36,13 +37,15 @@ curl --fail-with-body http://127.0.0.1:8001/generate \
   --output preview.jpg
 ```
 
+Use `category=lower-body` with a pants or skirt garment. FastAPI makes two requests for a full outfit. It generates the bottom first, then uses that preview as the person image for the upper-body request.
+
 When token auth is enabled, add the `Authorization: Bearer` header with the configured token to the generation request.
 
 ## Team integration
 
 Set `AI_SERVICE_URL=http://127.0.0.1:8001` in the existing backend environment when both services run on the same host. Set `FASTAPI_USE_MOCK=false` in Laravel. The default backend and Laravel AI timeouts are 300 s and 330 s respectively. Keep the deployed request timeout above the measured inference time.
 
-Register or log in, upload a real photo of a top to Wardrobe, select that top in Try-On, and upload a front-facing person photo. Generate and save the preview, then sign in again and open Profile → Try On. Use small JPEGs for the demo if the PHP host retains its default 2 MB upload limit. The catalog seed uses illustrations.
+Register or log in, upload a real top and bottom to Wardrobe, create an outfit in Mix & Match, then choose Try On from the saved outfit. Upload a front-facing full-body photo; FastAPI generates the top stage followed by the bottom stage. Use small JPEGs for the demo if the PHP host retains its default 2 MB upload limit. The catalog seed uses illustrations.
 
 Use approved photos for demos and keep photos, generated previews, weights, and tokens out of Git. The service uses in-memory image processing and closes the multipart uploads at the end of the request.
 
@@ -94,5 +97,6 @@ The upstream [demo examples](https://huggingface.co/spaces/zhengchong/CatVTON/tr
 
 ## Upstream models
 
-- [CatVTON MaskFree](https://huggingface.co/zhengchong/CatVTON-MaskFree) and its [upstream inference implementation](https://huggingface.co/spaces/zhengchong/CatVTON/tree/24a6952918a8c6168b89ae32ad61e7e447e3987b) by Zheng Chong and coauthors. The CatVTON model card lists CC BY-NC-SA 4.0.
+- [CatVTON](https://huggingface.co/zhengchong/CatVTON) and [CatVTON MaskFree](https://huggingface.co/zhengchong/CatVTON-MaskFree) by Zheng Chong and coauthors. The CatVTON model card lists CC BY-NC-SA 4.0. See the [upstream inference implementation](https://huggingface.co/spaces/zhengchong/CatVTON/tree/24a6952918a8c6168b89ae32ad61e7e447e3987b).
+- [SegFormer B2 clothes parser](https://huggingface.co/mattmdjaga/segformer_b2_clothes) locates the editable garment region. [Stable Diffusion Inpainting](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-inpainting) supplies the lower-body UNet and scheduler.
 - [InstructPix2Pix](https://huggingface.co/timbrooks/instruct-pix2pix) supplies the base UNet and scheduler. [SD VAE FT-MSE](https://huggingface.co/stabilityai/sd-vae-ft-mse) supplies the VAE. See each model card for its terms.

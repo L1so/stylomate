@@ -27,6 +27,14 @@ class FastApiClient
         'accessory' => 'Aksesori',
     ];
 
+    public const CATALOG_PER_PAGE = 12;
+
+    public const CATALOG_MAX_PER_PAGE = 48;
+
+    public const LIST_PAGE_SIZE = 100;
+
+    private const MAX_LIST_PAGES = 100;
+
     // Style yang diterima FastAPI untuk Wardrobe dan Recommendations (kontrak final)
     public const STYLES = [
         'casual' => 'Casual',
@@ -61,12 +69,16 @@ class FastApiClient
         return $this->send('get', '/auth/me');
     }
 
-    public function catalog(string $search = '', string $category = ''): array
+    public function catalog(string $search = '', string $category = '', int $page = 1, int $perPage = self::CATALOG_PER_PAGE): array
     {
         // UI memakai ?search=, backend FastAPI memakai ?q=
-        $query = array_filter(['q' => $search, 'category' => $category], fn (string $value) => $value !== '');
+        $query = array_filter(['q' => $search, 'category' => $category], fn (string $value) => $value !== '')
+            + ['limit' => $perPage, 'offset' => ($page - 1) * $perPage];
+        $response = $this->sendWithMeta('get', '/catalog', $query);
+        $items = array_map(fn (array $item) => $this->withCatalogUrls($item), $this->listOf($response['data']));
+        $total = $response['meta']['total'] ?? null;
 
-        return array_map(fn (array $item) => $this->withCatalogUrls($item), $this->listOf($this->send('get', '/catalog', $query)));
+        return ['items' => $items, 'total' => is_int($total) && $total >= 0 ? $total : count($items)];
     }
 
     public function catalogItem(int $id): array
@@ -79,10 +91,10 @@ class FastApiClient
         return array_map(function (array $outfit) {
             // Outfit hanya membawa wardrobe_item_ids; gambar tiap item diambil lewat proxy Laravel
             $ids = array_filter(is_array($outfit['wardrobe_item_ids'] ?? null) ? $outfit['wardrobe_item_ids'] : [], 'is_int');
-            $outfit['wardrobe_images'] = array_values(array_map(fn (int $id) => route('media.wardrobe', ['id' => $id]), $ids));
+            $outfit['wardrobe_images'] = array_values(array_map(fn (int $id) => route('media.wardrobe', ['id' => $id, 'size' => 'thumb']), $ids));
 
             return $outfit;
-        }, $this->listOf($this->send('get', '/outfits')));
+        }, $this->allPages('/outfits'));
     }
 
     public function deleteOutfit(int $id): void
@@ -99,7 +111,7 @@ class FastApiClient
             $result['download_url'] = is_int($id) ? route('media.try-on', ['id' => $id, 'download' => 1]) : null;
 
             return $result;
-        }, $this->listOf($this->send('get', '/try-on/history')));
+        }, $this->allPages('/try-on/history'));
     }
 
     public function deleteTryOn(int $id): void
@@ -111,7 +123,7 @@ class FastApiClient
 
     public function wardrobeItems(): array
     {
-        return array_map(fn (array $item) => $this->withWardrobeImage($item), $this->listOf($this->send('get', '/wardrobe')));
+        return array_map(fn (array $item) => $this->withWardrobeImage($item), $this->allPages('/wardrobe'));
     }
 
     public function wardrobeItem(int $id): array
@@ -164,18 +176,33 @@ class FastApiClient
     // ---- Virtual Try-On (Anggota 4) ----
 
     /**
-     * POST /try-on/generate multipart: person_image + tepat satu dari wardrobe_item_id / catalog_item_id.
+     * POST /try-on/generate multipart: person_image + tepat satu dari wardrobe_item_id / catalog_item_id / outfit_id.
      * Memakai timeout AI yang terpisah. Tidak ada retry otomatis: generate bisa saja selesai di server walau timeout.
      * Mengembalikan hasil FastAPI dengan image_url berupa proxy Laravel /media/try-on/{id}.
      */
-    public function generateTryOn(UploadedFile $personImage, ?int $wardrobeItemId, ?int $catalogItemId): array
+    public function generateTryOn(
+        UploadedFile $personImage,
+        ?int $wardrobeItemId,
+        ?int $catalogItemId,
+        ?int $outfitId = null,
+    ): array
     {
         $fields = array_filter(
-            ['wardrobe_item_id' => $wardrobeItemId, 'catalog_item_id' => $catalogItemId],
+            [
+                'wardrobe_item_id' => $wardrobeItemId,
+                'catalog_item_id' => $catalogItemId,
+                'outfit_id' => $outfitId,
+            ],
             fn ($value) => $value !== null
         );
 
-        $result = $this->upload('post', '/try-on/generate', $fields, ['person_image' => $personImage], $this->aiTimeout());
+        $result = $this->upload(
+            'post',
+            '/try-on/generate',
+            $fields,
+            ['person_image' => $personImage],
+            $this->aiTimeout($outfitId !== null),
+        );
         $id = $result['id'] ?? $result['generation_id'] ?? null;
 
         if (! is_int($id)) {
@@ -209,14 +236,14 @@ class FastApiClient
         return $this->image("/try-on/{$id}/image");
     }
 
-    public function wardrobeImage(int $id): array
+    public function wardrobeImage(int $id, bool $thumbnail = false): array
     {
-        return $this->image("/wardrobe/{$id}/image");
+        return $this->image("/wardrobe/{$id}/image", $thumbnail ? ['size' => 'thumb'] : []);
     }
 
-    protected function image(string $uri): array
+    protected function image(string $uri, array $query = []): array
     {
-        $response = $this->request('get', $uri);
+        $response = $this->request('get', $uri, $query);
         $type = strtolower(trim(strtok((string) $response->header('Content-Type'), ';') ?: ''));
 
         if (! array_key_exists($type, self::IMAGE_TYPES)) {
@@ -290,9 +317,9 @@ class FastApiClient
     }
 
     // Timeout khusus AI (detik); harus lebih besar dari AI_TIMEOUT_SECONDS di FastAPI (default 300)
-    protected function aiTimeout(): int
+    protected function aiTimeout(bool $fullOutfit = false): int
     {
-        return (int) config('services.fastapi.ai_timeout', 330);
+        return (int) config($fullOutfit ? 'services.fastapi.ai_outfit_timeout' : 'services.fastapi.ai_timeout', $fullOutfit ? 660 : 330);
     }
 
     protected function send(string $method, string $uri, array $data = []): array
@@ -301,6 +328,16 @@ class FastApiClient
         $data = $this->request($method, $uri, $data)->json('data');
 
         return is_array($data) ? $data : [];
+    }
+
+    protected function sendWithMeta(string $method, string $uri, array $data = []): array
+    {
+        $body = $this->request($method, $uri, $data)->json();
+
+        return [
+            'data' => is_array($body['data'] ?? null) ? $body['data'] : [],
+            'meta' => is_array($body['meta'] ?? null) ? $body['meta'] : [],
+        ];
     }
 
     private function fieldErrors(Response $response): array
@@ -340,6 +377,23 @@ class FastApiClient
         };
     }
 
+    private function allPages(string $uri): array
+    {
+        $items = [];
+        for ($page = 0; $page < self::MAX_LIST_PAGES; $page++) {
+            $response = $this->sendWithMeta('get', $uri, ['limit' => self::LIST_PAGE_SIZE, 'offset' => $page * self::LIST_PAGE_SIZE]);
+            $batch = $this->listOf($response['data']);
+            $items = [...$items, ...$batch];
+            $total = $response['meta']['total'] ?? null;
+
+            if (count($batch) < self::LIST_PAGE_SIZE || ! is_int($total) || count($items) >= $total) {
+                break;
+            }
+        }
+
+        return $items;
+    }
+
     private function listOf(array $data): array
     {
         return array_values(array_filter($data, 'is_array'));
@@ -350,6 +404,7 @@ class FastApiClient
         // image_url dari backend (/api/wardrobe/{id}/image) butuh JWT, jadi browser memakai proxy Laravel ber-id
         $id = $item['id'] ?? null;
         $item['image_url'] = is_int($id) ? route('media.wardrobe', ['id' => $id]) : null;
+        $item['thumbnail_url'] = is_int($id) ? route('media.wardrobe', ['id' => $id, 'size' => 'thumb']) : null;
         $category = $item['category'] ?? null;
         $item['category_label'] = self::CATEGORIES[$category] ?? (is_string($category) ? ucfirst($category) : null);
 
@@ -360,6 +415,7 @@ class FastApiClient
     {
         // Gambar Catalog publik: browser memuatnya langsung dari FastAPI lewat image_url
         $item['image_url'] = $this->absoluteUrl($item['image_url'] ?? null);
+        $item['thumbnail_url'] = $this->absoluteUrl($item['thumbnail_url'] ?? null);
 
         // Hanya link http/https yang boleh tampil (cegah href "javascript:")
         $url = $item['product_url'] ?? null;

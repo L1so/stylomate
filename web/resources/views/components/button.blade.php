@@ -1,5 +1,5 @@
 {{-- Tombol reusable. Varian: primary, secondary, ghost, danger, outline-light di atas latar gelap/terracotta. Pakai: <x-button label="Simpan" :href="route('x')" variant="secondary" />; :external="true" untuk link ke situs lain --}}
-@props(['label', 'href' => null, 'variant' => 'primary', 'type' => 'submit', 'external' => false])
+@props(['label', 'href' => null, 'variant' => 'primary', 'type' => 'submit', 'external' => false, 'value' => null])
 @php
     $variantClasses = [
         'primary' => 'bg-terracotta text-white hover:bg-terracotta-700',
@@ -15,5 +15,5 @@
 @if (!empty($href))
     <a href="{{ $href }}" class="{{ $buttonClasses }}" @if (!empty($external)) target="_blank" rel="noopener noreferrer" @endif>{{ $label }}@if (!empty($external))<span class="sr-only"> (tab baru)</span>@endif</a>
 @else
-    <button type="{{ $type }}" class="{{ $buttonClasses }}">{{ $label }}</button>
+    <button type="{{ $type }}" class="{{ $buttonClasses }}" @if ($value !== null) value="{{ $value }}" @endif>{{ $label }}</button>
 @endif

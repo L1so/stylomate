@@ -8,8 +8,18 @@ from time import monotonic, sleep
 
 import httpx
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
+
+LOWER_BODY_NOT_VISIBLE = "lower_body_not_visible"
+
+
+def lower_body_validation_error() -> RequestValidationError:
+    return RequestValidationError([{
+        "loc": ("body", "person_image"),
+        "msg": "Gunakan foto seluruh badan dengan pinggang dan kaki terlihat jelas.",
+    }])
 
 
 def ai_headers() -> dict[str, str]:
@@ -53,14 +63,20 @@ def wait_for_ai(client: httpx.Client) -> None:
     raise HTTPException(503, "AI service is still starting; please retry shortly")
 
 
-def generate_zerogpu(client: httpx.Client, person: bytes, garment: bytes, max_bytes: int) -> bytes:
+def generate_zerogpu(
+    client: httpx.Client,
+    person: bytes,
+    garment: bytes,
+    max_bytes: int,
+    category: str,
+) -> bytes:
     endpoint = settings.ai_service_url.rstrip("/") + "/gradio_api/call/generate"
     headers = ai_headers()
     deadline = monotonic() + settings.ai_timeout_seconds
     response = client.post(endpoint, headers=headers, json={"data": [
         b64encode(person).decode("ascii"),
         b64encode(garment).decode("ascii"),
-        "upper-body",
+        category,
     ]})
     response.raise_for_status()
     try:
@@ -80,7 +96,13 @@ def generate_zerogpu(client: httpx.Client, person: bytes, garment: bytes, max_by
                 event = line.removeprefix("event:").strip()
             elif line.startswith("data:") and event == "complete":
                 return decode_zerogpu_image(line.removeprefix("data:").strip(), max_bytes)
-            elif event == "error":
+            elif line.startswith("data:") and event == "error":
+                try:
+                    error = json.loads(line.removeprefix("data:").strip())
+                except ValueError:
+                    break
+                if isinstance(error, dict) and error.get("error") == LOWER_BODY_NOT_VISIBLE:
+                    raise lower_body_validation_error()
                 break
 
     raise HTTPException(503, "AI could not finish the queued preview; please retry")

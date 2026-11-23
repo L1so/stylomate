@@ -15,8 +15,9 @@ class RouteAccessTest extends TestCase
         // Halaman fashion memanggil FastAPI saat dibuka; semua dijawab kosong kecuali detail pakaian
         Http::fake([
             '*/wardrobe/5' => Http::response(['data' => ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal']]),
-            '*/wardrobe' => Http::response(['data' => []]),
+            '*/wardrobe?*' => Http::response(['data' => []]),
             '*/catalog*' => Http::response(['data' => []]),
+            '*/outfits?*' => Http::response(['data' => []]),
         ]);
     }
 

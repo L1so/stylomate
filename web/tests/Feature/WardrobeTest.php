@@ -49,7 +49,7 @@ class WardrobeTest extends TestCase
 
     public function test_index_lists_items_with_jwt_and_private_image_route(): void
     {
-        Http::fake(['*/wardrobe' => Http::response(['data' => [$this->item(), $this->item(['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom'])]])]);
+        Http::fake(['*/wardrobe?*' => Http::response(['data' => [$this->item(), $this->item(['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom'])]])]);
 
         $this->asUser()->get('/wardrobe')
             ->assertOk()
@@ -60,20 +60,33 @@ class WardrobeTest extends TestCase
             ->assertSee('noindex, nofollow', false);
 
         Http::assertSent(fn (Request $request) => $request->method() === 'GET'
-            && str_ends_with($request->url(), '/wardrobe')
+            && str_contains($request->url(), '/wardrobe?limit=100&offset=0')
             && $request->hasHeader('Authorization', 'Bearer jwt-1'));
+    }
+
+    public function test_index_fetches_every_page_of_wardrobe(): void
+    {
+        $firstPage = array_map(fn (int $id) => $this->item(['id' => $id, 'name' => "Pakaian {$id}"]), range(1, 100));
+        Http::fake([
+            '*/wardrobe?limit=100&offset=0' => Http::response(['data' => $firstPage, 'meta' => ['total' => 101, 'limit' => 100, 'offset' => 0]]),
+            '*/wardrobe?limit=100&offset=100' => Http::response(['data' => [$this->item(['id' => 101, 'name' => 'Jaket Terakhir', 'category' => 'outerwear'])], 'meta' => ['total' => 101, 'limit' => 100, 'offset' => 100]]),
+        ]);
+
+        $this->asUser()->get('/wardrobe')->assertOk()->assertSee('Jaket Terakhir');
+
+        Http::assertSentCount(2);
     }
 
     public function test_index_shows_empty_state(): void
     {
-        Http::fake(['*/wardrobe' => Http::response(['data' => []])]);
+        Http::fake(['*/wardrobe?*' => Http::response(['data' => []])]);
 
         $this->asUser()->get('/wardrobe')->assertOk()->assertSee('Wardrobe kamu masih kosong');
     }
 
     public function test_index_filters_by_category_and_ignores_unknown_category(): void
     {
-        Http::fake(['*/wardrobe' => Http::response(['data' => [$this->item(), $this->item(['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom'])]])]);
+        Http::fake(['*/wardrobe?*' => Http::response(['data' => [$this->item(), $this->item(['id' => 6, 'name' => 'Jeans Biru', 'category' => 'bottom'])]])]);
 
         $this->asUser()->get('/wardrobe?category=bottom')->assertSee('Jeans Biru')->assertDontSee('Kemeja Putih');
         $this->asUser()->get('/wardrobe?category=<script>')->assertSee('Jeans Biru')->assertSee('Kemeja Putih');
@@ -81,7 +94,7 @@ class WardrobeTest extends TestCase
 
     public function test_index_handles_fastapi_down_with_safe_message(): void
     {
-        Http::fake(['*/wardrobe' => Http::response('', 500)]);
+        Http::fake(['*/wardrobe?*' => Http::response('', 500)]);
 
         $this->asUser()->get('/wardrobe')->assertSee('Halaman belum bisa ditampilkan')->assertSee('Terjadi kesalahan di server. Coba lagi nanti.')->assertDontSee('Exception');
     }

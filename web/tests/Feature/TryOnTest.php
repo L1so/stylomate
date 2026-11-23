@@ -30,17 +30,26 @@ class TryOnTest extends TestCase
         return ['id' => 3, 'name' => 'Sweater Rajut', 'brand' => 'Brand A', 'category' => 'top', 'color' => 'cokelat', 'style' => 'casual', 'image_path' => null, 'product_url' => null];
     }
 
+    private function catalogBottom(): array
+    {
+        return ['id' => 5, 'name' => 'Kulot', 'brand' => 'Brand B', 'category' => 'bottom', 'color' => 'hitam', 'style' => 'formal', 'image_path' => null, 'product_url' => null];
+    }
+
     private function fakePickers(?array $catalogItem = null): void
     {
         $catalogItem ??= $this->catalogTop();
 
         Http::fake([
             '*/catalog/3' => Http::response(['data' => $catalogItem]),
-            '*/catalog/5' => Http::response(['data' => ['id' => 5, 'name' => 'Kulot', 'category' => 'bottom'] + $catalogItem]),
-            '*/catalog*' => Http::response(['data' => [$this->catalogTop()]]),
-            '*/wardrobe' => Http::response(['data' => [
+            '*/catalog/5' => Http::response(['data' => $this->catalogBottom()]),
+            '*/catalog/7' => Http::response(['data' => ['id' => 7, 'name' => 'Dress', 'category' => 'dress'] + $catalogItem]),
+            '*/catalog*' => Http::response(['data' => [$this->catalogTop(), $this->catalogBottom()]]),
+            '*/wardrobe?*' => Http::response(['data' => [
                 ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal'],
                 ['id' => 6, 'name' => 'Celana Bahan', 'category' => 'bottom', 'color' => 'hitam', 'style' => 'formal'],
+            ]]),
+            '*/outfits?*' => Http::response(['data' => [
+                ['id' => 9, 'name' => 'Formal Lengkap', 'wardrobe_item_ids' => [5, 6]],
             ]]),
         ]);
     }
@@ -52,22 +61,60 @@ class TryOnTest extends TestCase
 
     // ---- halaman ----
 
-    public function test_page_lists_only_tops_from_wardrobe_and_catalog(): void
+    public function test_page_lists_outfits_tops_and_bottoms(): void
     {
         $this->fakePickers();
 
         $this->asUser()->get('/try-on')
             ->assertOk()
+            ->assertSee('Formal Lengkap')
             ->assertSee('Kemeja Putih')
-            ->assertDontSee('Celana Bahan')
+            ->assertSee('Celana Bahan')
             ->assertSee('Sweater Rajut')
+            ->assertSee('Kulot')
+            ->assertSee('value="outfit:9"', false)
             ->assertSee('value="wardrobe:5"', false)
             ->assertSee('value="catalog:3"', false)
             ->assertSee('enctype="multipart/form-data"', false)
             ->assertSee('data-loading', false)
             ->assertSee('noindex, nofollow', false);
 
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/catalog?category=top'));
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/catalog?'));
+    }
+
+    public function test_index_shows_privacy_dialog(): void
+    {
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('data-consent-dialog="privasi-try-on"', false)
+            ->assertSee('id="privasi-try-on"', false)
+            ->assertSee('Foto badanmu tidak kami simpan')
+            ->assertSee('name="privacy_consent"', false);
+    }
+
+    public function test_index_has_no_javascript_privacy_consent_and_catalog_link(): void
+    {
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('<noscript>', false)
+            ->assertSee('name="privacy_consent" value="1"', false)
+            ->assertSee('Saya sudah membaca dan setuju')
+            ->assertSee('Cari di Catalog');
+    }
+
+    public function test_privacy_text_without_configured_ai_provider_hides_third_party_name(): void
+    {
+        config(['services.fastapi.ai_provider' => '']);
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('Foto diproses oleh server AI StyloMate')
+            ->assertDontSee('pihak ketiga');
     }
 
     public function test_catalog_item_id_from_catalog_button_is_preselected(): void
@@ -89,16 +136,34 @@ class TryOnTest extends TestCase
         $this->assertMatchesRegularExpression('/value="wardrobe:5"[^>]*checked/', $html);
     }
 
-    public function test_non_top_catalog_item_shows_mvp_notice_and_is_not_preselected(): void
+    public function test_bottom_catalog_item_is_preselected(): void
     {
         $this->fakePickers();
 
-        $html = $this->asUser()->get('/try-on?catalog_item_id=5')
+        $html = $this->asUser()->get('/try-on?catalog_item_id=5')->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/value="catalog:5"[^>]*checked/', $html);
+    }
+
+    public function test_outfit_id_from_profile_button_is_preselected(): void
+    {
+        $this->fakePickers();
+
+        $html = $this->asUser()->get('/try-on?outfit_id=9')->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/value="outfit:9"[^>]*checked/', $html);
+    }
+
+    public function test_unsupported_catalog_item_shows_notice(): void
+    {
+        $this->fakePickers();
+
+        $html = $this->asUser()->get('/try-on?catalog_item_id=7')
             ->assertOk()
-            ->assertSee('baru mendukung atasan')
+            ->assertSee('mendukung atasan, bawahan')
             ->getContent();
 
-        $this->assertDoesNotMatchRegularExpression('/value="catalog:5"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/value="catalog:7"/', $html);
     }
 
     public function test_invalid_catalog_item_id_in_query_is_ignored(): void
@@ -115,7 +180,8 @@ class TryOnTest extends TestCase
         Http::fake([
             '*/catalog/99' => Http::response(['error' => ['message' => 'x']], 404),
             '*/catalog*' => Http::response(['data' => []]),
-            '*/wardrobe' => Http::response(['data' => []]),
+            '*/wardrobe?*' => Http::response(['data' => []]),
+            '*/outfits?*' => Http::response(['data' => []]),
         ]);
 
         $this->asUser()->get('/try-on?catalog_item_id=99')->assertNotFound();
@@ -139,7 +205,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['id' => 77, 'generation_id' => 77, 'saved' => false, 'image_url' => '/api/try-on/77/image', 'wardrobe_item_id' => null, 'catalog_item_id' => 3]], 201)]);
 
-        $this->asUser()->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 77
                 && $result['generation_id'] === 77
@@ -159,11 +225,24 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['generation_id' => 78]], 201)]);
 
-        $this->asUser()->post('/try-on/generate', ['item' => 'wardrobe:5', 'person_image' => $this->png()])
+        $this->asUser()->post('/try-on/generate', ['item' => 'wardrobe:5', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 78);
 
         Http::assertSent(fn (Request $request) => str_contains($request->body(), 'name="wardrobe_item_id"')
+            && ! str_contains($request->body(), 'catalog_item_id'));
+    }
+
+    public function test_generate_with_outfit_sends_only_outfit_id(): void
+    {
+        Http::fake(['*/try-on/generate' => Http::response(['data' => ['generation_id' => 79, 'outfit_id' => 9]], 201)]);
+
+        $this->asUser()->post('/try-on/generate', ['item' => 'outfit:9', 'privacy_consent' => '1', 'person_image' => $this->png()])
+            ->assertRedirect(route('try-on.index'))
+            ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 79 && $result['item'] === 'outfit:9');
+
+        Http::assertSent(fn (Request $request) => str_contains($request->body(), 'name="outfit_id"')
+            && ! str_contains($request->body(), 'wardrobe_item_id')
             && ! str_contains($request->body(), 'catalog_item_id'));
     }
 
@@ -193,7 +272,7 @@ class TryOnTest extends TestCase
             null => null,
             default => $this->png(),
         };
-        $input = array_filter($input, fn ($value) => $value !== null);
+        $input = array_filter($input, fn ($value) => $value !== null) + ['privacy_consent' => '1'];
 
         $this->asUser()->from('/try-on')->post('/try-on/generate', $input)
             ->assertRedirect('/try-on')
@@ -202,23 +281,35 @@ class TryOnTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_generate_shows_fastapi_422_for_non_top_item(): void
+    public function test_generate_requires_privacy_consent(): void
+    {
+        $this->asUser()->from('/try-on')->post('/try-on/generate', [
+            'item' => 'catalog:3',
+            'person_image' => UploadedFile::fake()->create('foto.jpg', 100, 'image/jpeg'),
+        ])
+            ->assertRedirect('/try-on')
+            ->assertSessionHasErrors('privacy_consent');
+
+        Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/try-on/generate'));
+    }
+
+    public function test_generate_shows_fastapi_422_for_unsupported_item(): void
     {
         Http::fake(['*/try-on/generate' => Http::response(['error' => [
             'message' => 'Data tidak valid.',
-            'fields' => [['field' => 'wardrobe_item_id', 'message' => 'Try On saat ini hanya mendukung kategori top.']],
+            'fields' => [['field' => 'wardrobe_item_id', 'message' => 'Try On hanya mendukung atasan dan bawahan.']],
         ]], 422)]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:6', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:6', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
-            ->assertSessionHasErrors(['wardrobe_item_id' => 'Try On saat ini hanya mendukung kategori top.']);
+            ->assertSessionHasErrors(['wardrobe_item_id' => 'Try On hanya mendukung atasan dan bawahan.']);
     }
 
     public function test_generate_server_error_returns_to_form_with_safe_message_and_keeps_selection(): void
     {
         Http::fake(['*/try-on/generate' => Http::response('trace internal', 500)]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
             ->assertSessionHas('error', 'Terjadi kesalahan di server. Coba lagi nanti.')
             ->assertSessionHasInput('item', 'catalog:3');
@@ -228,7 +319,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => fn () => throw new ConnectionException('cURL error 28: timeout')]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
             ->assertSessionHas('error', 'Server StyloMate belum bisa dihubungi. Coba lagi sebentar lagi.');
     }
@@ -237,13 +328,13 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['saved' => false]])]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertSessionHas('error');
     }
 
     public function test_ai_timeout_is_separate_from_the_normal_timeout(): void
     {
-        config(['services.fastapi.timeout' => 10, 'services.fastapi.ai_timeout' => 120]);
+        config(['services.fastapi.timeout' => 10, 'services.fastapi.ai_timeout' => 120, 'services.fastapi.ai_outfit_timeout' => 240]);
 
         $client = new class extends FastApiClient
         {
@@ -251,9 +342,15 @@ class TryOnTest extends TestCase
             {
                 return $this->aiTimeout();
             }
+
+            public function outfitSeconds(): int
+            {
+                return $this->aiTimeout(true);
+            }
         };
 
         $this->assertSame(120, $client->aiSeconds());
+        $this->assertSame(240, $client->outfitSeconds());
     }
 
     // ---- simpan ----
@@ -283,7 +380,7 @@ class TryOnTest extends TestCase
 
     public function test_guest_cannot_generate_or_save(): void
     {
-        $this->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])->assertRedirect(route('login'));
+        $this->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])->assertRedirect(route('login'));
         $this->post('/try-on/save', ['generation_id' => 1])->assertRedirect(route('login'));
 
         Http::assertNothingSent();

@@ -13,12 +13,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from inference import ImageGenerator, load_model
+from inference import ImageGenerator, LowerBodyNotVisible, load_model
 
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 20_000_000
 logger = logging.getLogger("uvicorn.error")
+LOWER_BODY_NOT_VISIBLE = "lower_body_not_visible"
 
 
 def decode_image_data(data: bytes) -> Image.Image:
@@ -69,7 +70,7 @@ def create_app(
     async def invalid_form(request: Request, error: RequestValidationError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content={"detail": "Provide person_image, garment_image, and category=upper-body."},
+            content={"detail": "Provide person_image, garment_image, and category=upper-body or lower-body."},
         )
 
     @app.get("/")
@@ -84,7 +85,7 @@ def create_app(
         request: Request,
         person_image: Annotated[UploadFile, File()],
         garment_image: Annotated[UploadFile, File()],
-        category: Annotated[Literal["upper-body"], Form()],
+        category: Annotated[Literal["upper-body", "lower-body"], Form()],
     ) -> Response:
         model = getattr(request.app.state, "generate", None)
         if model is None or not generation_slot.acquire(blocking=False):
@@ -93,9 +94,14 @@ def create_app(
         try:
             with decode_image(person_image) as person, decode_image(garment_image) as garment:
                 try:
-                    with model(person, garment) as result, BytesIO() as output:
+                    with model(person, garment, category) as result, BytesIO() as output:
                         result.save(output, format="JPEG", quality=90)
                         data = output.getvalue()
+                except LowerBodyNotVisible:
+                    raise HTTPException(
+                        422, LOWER_BODY_NOT_VISIBLE,
+                        headers={"X-StyloMate-Error": LOWER_BODY_NOT_VISIBLE},
+                    ) from None
                 except Exception as error:
                     logger.error("Try-on inference failed (%s)", type(error).__name__)
                     raise HTTPException(503, "Could not generate a try-on preview.") from None
