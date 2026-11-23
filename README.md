@@ -9,6 +9,7 @@ The FastAPI MVP implements auth, catalog, wardrobe, outfits, rule-based recommen
 Di satu terminal
 
 ```bash
+. .venv/bin/activate
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
