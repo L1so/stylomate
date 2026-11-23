@@ -29,7 +29,7 @@ class TryOnController extends Controller
 
         $supported = ['top', 'bottom'];
         $catalogItems = array_values(array_filter(
-            $api->catalog(),
+            $api->catalog(perPage: FastApiClient::CATALOG_MAX_PER_PAGE)['items'],
             fn (array $item) => in_array($item['category'] ?? null, $supported, true),
         ));
         $wardrobeItems = array_values(array_filter(

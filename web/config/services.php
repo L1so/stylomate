@@ -44,6 +44,7 @@ return [
         // Outfit menjalankan dua inferensi berurutan: lower-body lalu upper-body.
         'ai_outfit_timeout' => (int) env('FASTAPI_AI_OUTFIT_TIMEOUT', 660),
         'ai_warmup' => env('FASTAPI_AI_WARMUP', false),
+        'ai_provider' => env('FASTAPI_AI_PROVIDER', 'Hugging Face'),
         'use_mock' => filter_var(env('FASTAPI_USE_MOCK', false), FILTER_VALIDATE_BOOL),
     ],
 

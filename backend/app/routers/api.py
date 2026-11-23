@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select, delete, case
+from sqlalchemy import select, delete, case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -10,10 +11,11 @@ from app.services.security import current_user, passwords, issue_token
 from app.services.ai import (
     LOWER_BODY_NOT_VISIBLE, ai_headers, generate_zerogpu, lower_body_validation_error, probe_ai, wait_for_ai,
 )
-from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, remove_image
+from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, sized_image_path, remove_image
 from app.config import settings
 import httpx
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 router = APIRouter(prefix='/api')
 
@@ -34,7 +36,13 @@ def garment(item, kind):
     result = {k: getattr(item, k) for k in ('id', 'name', 'category', 'color', 'style')}
     result['image_url'] = f'/api/{kind}/{item.id}/image'
     if kind == 'catalog':
-        result.update(brand=item.brand, product_url=item.product_url)
+        version = Path(item.image_path).stem[:8]
+        result.update(
+            brand=item.brand,
+            product_url=item.product_url,
+            image_url=f'/api/catalog/{item.id}/image?v={version}',
+            thumbnail_url=f'/api/catalog/{item.id}/image?size=thumb&v={version}',
+        )
     return result
 
 def outfit_category_order():
@@ -84,6 +92,11 @@ def result_data(result):
         'outfit_id': result.outfit_id,
     }
 
+def paginated(db, query, limit, offset, serialize):
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
+    rows = db.scalars(query.limit(limit).offset(offset))
+    return {'data': [serialize(row) for row in rows], 'meta': {'total': total, 'limit': limit, 'offset': offset}}
+
 @router.post('/auth/register', status_code=201)
 def register(body: Register, db: Session = Depends(get_db)):
     user = User(name=body.name, email=str(body.email).lower(), password_hash=passwords.hash(body.password))
@@ -107,13 +120,20 @@ def me(user: User = Depends(current_user)):
     return {'data': profile(user)}
 
 @router.get('/catalog')
-def catalog(q: str = '', category: Category | None = None, db: Session = Depends(get_db)):
-    query = select(CatalogItem).order_by(CatalogItem.id)
+def catalog(
+    q: str = '',
+    category: Category | None = None,
+    limit: int = Query(12, ge=1, le=48),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+):
+    filters = []
     if q:
-        query = query.where(CatalogItem.name.ilike('%' + q[:100] + '%'))
+        filters.append(CatalogItem.name.ilike('%' + q[:100] + '%'))
     if category:
-        query = query.where(CatalogItem.category == category)
-    return {'data': [garment(i, 'catalog') for i in db.scalars(query)]}
+        filters.append(CatalogItem.category == category)
+    query = select(CatalogItem).where(*filters).order_by(CatalogItem.id)
+    return paginated(db, query, limit, offset, lambda item: garment(item, 'catalog'))
 
 def catalog_item(db, identity):
     item = db.get(CatalogItem, identity)
@@ -126,12 +146,19 @@ def catalog_detail(identity: int, db: Session = Depends(get_db)):
     return {'data': garment(catalog_item(db, identity), 'catalog')}
 
 @router.get('/catalog/{identity}/image')
-def catalog_image(identity: int, db: Session = Depends(get_db)):
-    return FileResponse(image_path(catalog_item(db, identity).image_path), media_type='image/jpeg')
+def catalog_image(identity: int, size: Literal['full', 'thumb'] = 'full', db: Session = Depends(get_db)):
+    name = catalog_item(db, identity).image_path
+    return FileResponse(sized_image_path(name, size), media_type='image/jpeg', headers={'Cache-Control': 'public, max-age=86400'})
 
 @router.get('/wardrobe')
-def wardrobe(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [garment(i, 'wardrobe') for i in db.scalars(select(WardrobeItem).where(WardrobeItem.user_id == user.id).order_by(WardrobeItem.id))]}
+def wardrobe(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(WardrobeItem).where(WardrobeItem.user_id == user.id).order_by(WardrobeItem.id)
+    return paginated(db, query, limit, offset, lambda item: garment(item, 'wardrobe'))
 
 @router.post('/wardrobe', status_code=201)
 def add_wardrobe(name: str = Form(min_length=1, max_length=100), category: Category = Form(), color: str = Form(min_length=1, max_length=30), style: Style = Form(), image: UploadFile = File(), db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -151,8 +178,8 @@ def wardrobe_detail(identity: int, db: Session = Depends(get_db), user: User = D
     return {'data': garment(owned(db, WardrobeItem, identity, user), 'wardrobe')}
 
 @router.get('/wardrobe/{identity}/image')
-def wardrobe_image(identity: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return FileResponse(image_path(owned(db, WardrobeItem, identity, user).image_path), media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
+def wardrobe_image(identity: int, size: Literal['full', 'thumb'] = 'full', db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return FileResponse(sized_image_path(owned(db, WardrobeItem, identity, user).image_path, size), media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
 
 @router.patch('/wardrobe/{identity}')
 def update_wardrobe(identity: int, name: str | None = Form(None, min_length=1, max_length=100), category: Category | None = Form(None), color: str | None = Form(None, min_length=1, max_length=30), style: Style | None = Form(None), image: UploadFile | None = File(None), db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -187,8 +214,14 @@ def delete_wardrobe(identity: int, db: Session = Depends(get_db), user: User = D
     return Response(status_code=204)
 
 @router.get('/outfits')
-def outfits(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [outfit_data(db, i) for i in db.scalars(select(Outfit).where(Outfit.user_id == user.id).order_by(Outfit.id))]}
+def outfits(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(Outfit).where(Outfit.user_id == user.id).order_by(Outfit.id)
+    return paginated(db, query, limit, offset, lambda outfit: outfit_data(db, outfit))
 
 @router.post('/outfits', status_code=201)
 def add_outfit(body: OutfitCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -336,8 +369,14 @@ def save_result(body: SaveResult, db: Session = Depends(get_db), user: User = De
     return {'data': result_data(result)}
 
 @router.get('/try-on/history')
-def history(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return {'data': [result_data(i) for i in db.scalars(select(TryOnResult).where(TryOnResult.user_id == user.id, TryOnResult.saved.is_(True)).order_by(TryOnResult.id.desc()))]}
+def history(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100_000),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    query = select(TryOnResult).where(TryOnResult.user_id == user.id, TryOnResult.saved.is_(True)).order_by(TryOnResult.id.desc())
+    return paginated(db, query, limit, offset, result_data)
 
 @router.get('/try-on/{identity}/image')
 def result_image(identity: int, db: Session = Depends(get_db), user: User = Depends(current_user)):

@@ -7,7 +7,7 @@
     <div class="relative">
         <a href="{{ $href }}" tabindex="-1" aria-hidden="true" class="block overflow-hidden rounded-md bg-grad-photo">
             @if (!empty($item['image_url']))
-                <img src="{{ $item['image_url'] }}" alt="" width="300" height="400" loading="lazy" class="aspect-[3/4] w-full object-cover">
+                <img src="{{ $item['thumbnail_url'] ?? $item['image_url'] }}" alt="" width="300" height="400" loading="lazy" class="aspect-[3/4] w-full object-cover">
             @else
                 <div class="flex aspect-[3/4] w-full items-center justify-center text-sm text-taupe">Belum ada foto</div>
             @endif

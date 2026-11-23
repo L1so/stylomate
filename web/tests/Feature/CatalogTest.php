@@ -11,6 +11,8 @@ class CatalogTest extends TestCase
 {
     private const LIST_URL = 'http://fastapi.test/api/catalog';
 
+    private const LIST_PATTERN = 'http://fastapi.test/api/catalog?*';
+
     private const ITEM_URL = 'http://fastapi.test/api/catalog/3';
 
     protected function setUp(): void
@@ -34,9 +36,21 @@ class CatalogTest extends TestCase
         ], $overrides);
     }
 
+    private function items(int $count, int $fromId = 1): array
+    {
+        return array_map(fn (int $id) => $this->item(['id' => $id, 'name' => "Baju {$id}"]), range($fromId, $fromId + $count - 1));
+    }
+
+    private function catalogQuery(Request $request): array
+    {
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+        return $query;
+    }
+
     public function test_index_lists_items_from_data_wrapper(): void
     {
-        Http::fake([self::LIST_URL => Http::response(['data' => [$this->item()]])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [$this->item()]])]);
 
         $this->get('/catalog')
             ->assertOk()
@@ -45,12 +59,12 @@ class CatalogTest extends TestCase
             ->assertSee('http://fastapi.test/api/catalog/3/image', false)
             ->assertSee(route('catalog.show', 3), false);
 
-        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL && ! $request->hasHeader('Authorization'));
+        Http::assertSent(fn (Request $request) => str_starts_with($request->url(), self::LIST_URL.'?') && ! $request->hasHeader('Authorization'));
     }
 
     public function test_catalog_image_url_is_made_absolute_from_backend_origin(): void
     {
-        Http::fake([self::LIST_URL => Http::response(['data' => [
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [
             $this->item(['id' => 3, 'name' => 'Linen Shirt', 'image_url' => '/api/catalog/3/image']),
             $this->item(['id' => 4, 'name' => 'Cdn Dress', 'image_url' => 'https://cdn.example.com/x.jpg']),
         ]])]);
@@ -61,9 +75,20 @@ class CatalogTest extends TestCase
             ->assertSee('src="https://cdn.example.com/x.jpg"', false);
     }
 
+    public function test_card_uses_thumbnail_url_when_available(): void
+    {
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [
+            $this->item(['thumbnail_url' => '/api/catalog/3/image?size=thumb']),
+        ]])]);
+
+        $this->get('/catalog')
+            ->assertOk()
+            ->assertSee('src="http://fastapi.test/api/catalog/3/image?size=thumb"', false);
+    }
+
     public function test_index_shows_empty_state_when_no_items(): void
     {
-        Http::fake([self::LIST_URL => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog')->assertOk()->assertSee('Catalog masih kosong');
     }
@@ -133,63 +158,111 @@ class CatalogTest extends TestCase
 
     public function test_catalog_search_is_sent_as_q(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => [$this->item()]])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [$this->item()]])]);
 
         $this->get('/catalog?search=linen&category=top')
             ->assertOk()
             ->assertSee('value="linen"', false)
             ->assertSee('aria-current="true"', false);
 
-        Http::assertSent(fn (Request $request) => $request->url() === 'http://fastapi.test/api/catalog?q=linen&category=top');
+        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL.'?q=linen&category=top&limit=12&offset=0');
     }
 
     public function test_new_categories_are_accepted(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog?category=outerwear')
             ->assertOk()
             ->assertSee('>Outer</h2>', false);
 
-        Http::assertSent(fn (Request $request) => $request->url() === 'http://fastapi.test/api/catalog?category=outerwear');
+        Http::assertSent(fn (Request $request) => str_starts_with($request->url(), self::LIST_URL.'?category=outerwear&'));
     }
 
     public function test_unknown_category_is_ignored(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog?category=%3Cscript%3E')
             ->assertOk()
             ->assertDontSee('<script>', false);
 
-        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL);
+        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL.'?limit=12&offset=0');
     }
 
     public function test_array_search_input_is_ignored(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog?search[]=x')->assertOk();
 
-        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL);
+        Http::assertSent(fn (Request $request) => $request->url() === self::LIST_URL.'?limit=12&offset=0');
     }
 
     public function test_search_is_limited_to_100_characters(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog?search='.str_repeat('a', 150))->assertOk();
 
-        Http::assertSent(fn (Request $request) => $request->url() === 'http://fastapi.test/api/catalog?q='.str_repeat('a', 100));
+        Http::assertSent(fn (Request $request) => str_starts_with($request->url(), self::LIST_URL.'?q='.str_repeat('a', 100).'&'));
     }
 
     public function test_no_results_shows_clear_filters(): void
     {
-        Http::fake(['http://fastapi.test/api/catalog*' => Http::response(['data' => []])]);
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => []])]);
 
         $this->get('/catalog?search=zzz')
             ->assertOk()
             ->assertSee('Pakaian tidak ditemukan')
             ->assertSee('Hapus Filter');
+    }
+
+    public function test_second_page_requests_next_offset_and_shows_pagination(): void
+    {
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => $this->items(12, 13), 'meta' => ['total' => 30]])]);
+
+        $this->get('/catalog?page=2&search=linen')
+            ->assertOk()
+            ->assertSee('Halaman 2 dari 3')
+            ->assertSee('page=1', false)
+            ->assertSee('page=3', false)
+            ->assertSee('30 pakaian')
+            ->assertSee('Catalog — Halaman 2')
+            ->assertSee('rel="canonical" href="'.e(route('catalog.index', ['search' => 'linen', 'page' => 2])).'"', false);
+
+        Http::assertSent(function (Request $request) {
+            $query = $this->catalogQuery($request);
+
+            return str_starts_with($request->url(), self::LIST_URL.'?')
+                && $query['offset'] === '12'
+                && $query['limit'] === '12'
+                && $query['q'] === 'linen';
+        });
+    }
+
+    public function test_page_beyond_last_returns_not_found(): void
+    {
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [], 'meta' => ['total' => 3]])]);
+
+        $this->get('/catalog?page=5')->assertNotFound();
+    }
+
+    public function test_invalid_page_falls_back_to_first_page(): void
+    {
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [$this->item()]])]);
+
+        $this->get('/catalog?page=abc')->assertOk();
+
+        Http::assertSent(fn (Request $request) => $this->catalogQuery($request)['offset'] === '0');
+    }
+
+    public function test_single_page_shows_no_pagination_nav(): void
+    {
+        Http::fake([self::LIST_PATTERN => Http::response(['data' => [$this->item()]])]);
+
+        $this->get('/catalog')
+            ->assertOk()
+            ->assertDontSee('aria-label="Halaman Catalog"', false);
     }
 }

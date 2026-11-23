@@ -13,12 +13,12 @@
     @hasSection('noindex')
         <meta name="robots" content="noindex, nofollow">
     @else
-        <link rel="canonical" href="{{ url()->current() }}">
+        <link rel="canonical" href="@yield('canonical', url()->current())">
         <meta property="og:type" content="website">
         <meta property="og:site_name" content="StyloMate">
         <meta property="og:title" content="@yield('title', 'StyloMate')">
         <meta property="og:description" content="@yield('description', 'StyloMate membantu kamu mencoba pakaian secara virtual, memadukan isi lemari, dan mendapat rekomendasi outfit.')">
-        <meta property="og:url" content="{{ url()->current() }}">
+        <meta property="og:url" content="@yield('canonical', url()->current())">
         <meta name="twitter:card" content="summary">
     @endif
     {{-- Font dari design system: Fraunces (judul) dan Plus Jakarta Sans (teks) --}}

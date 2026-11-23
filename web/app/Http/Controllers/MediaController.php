@@ -15,9 +15,9 @@ class MediaController extends Controller
         return $this->imageResponse($api->tryOnImage($id), $request->boolean('download') ? "stylomate-try-on-{$id}" : null);
     }
 
-    public function wardrobe(FastApiClient $api, int $id) // GET /media/wardrobe/{id}
+    public function wardrobe(Request $request, FastApiClient $api, int $id) // GET /media/wardrobe/{id}
     {
-        return $this->imageResponse($api->wardrobeImage($id), null);
+        return $this->imageResponse($api->wardrobeImage($id, $request->query('size') === 'thumb'), null);
     }
 
     private function imageResponse(array $file, ?string $downloadName)

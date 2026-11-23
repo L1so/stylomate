@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -68,6 +69,8 @@ class HomeTest extends TestCase
             ->assertOk()
             ->assertSee('Dari Catalog')
             ->assertSee('Kemeja Uji Beranda');
+
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), 'limit=4'));
     }
 
     public function test_home_still_loads_when_catalog_api_fails(): void

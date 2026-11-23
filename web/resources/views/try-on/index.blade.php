@@ -10,6 +10,12 @@
         'wardrobe' => ['label' => 'Pakaian dari Wardrobe', 'items' => $wardrobeItems, 'empty' => 'Belum ada atasan atau bawahan di Wardrobe.'],
         'catalog' => ['label' => 'Pakaian dari Catalog', 'items' => $catalogItems, 'empty' => 'Belum ada atasan atau bawahan di Catalog.'],
     ];
+    $aiProvider = trim((string) config('services.fastapi.ai_provider'));
+    $privacyPoints = [
+        'Foto badanmu tidak kami simpan. Foto hanya dipakai untuk membuat preview ini, lalu dibuang.',
+        $aiProvider !== '' ? 'Untuk membuat preview, foto dikirim ke layanan AI pihak ketiga ('.$aiProvider.').' : 'Foto diproses oleh server AI StyloMate.',
+        'Preview yang tidak kamu simpan kedaluwarsa setelah 1 jam lalu dihapus. Hasil yang kamu simpan tetap ada di Profil sampai kamu hapus.',
+    ];
 @endphp
 
     <div class="flex flex-col gap-8">
@@ -52,8 +58,9 @@
             </section>
         @endif
 
-        <form action="{{ route('try-on.generate') }}" method="POST" enctype="multipart/form-data" data-loading class="flex flex-col gap-8" novalidate>
+        <form action="{{ route('try-on.generate') }}" method="POST" enctype="multipart/form-data" data-loading data-consent-dialog="privasi-try-on" class="flex flex-col gap-8" novalidate>
             @csrf
+            <input type="hidden" name="privacy_consent" value="">
 
             <fieldset class="flex flex-col gap-4">
                 <legend class="font-serif text-2xl font-medium italic">Outfit dari Mix &amp; Match</legend>
@@ -73,7 +80,7 @@
                                         <span class="flex flex-col overflow-hidden rounded-sm bg-grad-photo">
                                             @foreach ($outfit['try_on_items'] as $item)
                                                 <span class="flex aspect-[4/3] items-center justify-center overflow-hidden bg-white/70">
-                                                    <img src="{{ $item['image_url'] }}" alt="{{ $item['category_label'] ?? 'Pakaian' }} untuk outfit {{ $outfit['name'] ?? '' }}" width="300" height="225" loading="lazy" class="h-full w-full object-contain">
+                                                    <img src="{{ $item['thumbnail_url'] ?? $item['image_url'] }}" alt="{{ $item['category_label'] ?? 'Pakaian' }} untuk outfit {{ $outfit['name'] ?? '' }}" width="300" height="225" loading="lazy" class="h-full w-full object-contain">
                                                 </span>
                                             @endforeach
                                         </span>
@@ -106,6 +113,9 @@
                                 </li>
                             @endforeach
                         </ul>
+                        @if ($source === 'catalog')
+                            <p class="text-sm text-taupe">Tidak menemukan pakaiannya? <a href="{{ route('catalog.index') }}" class="font-semibold text-terracotta underline">Cari di Catalog</a>, lalu pilih Try On di kartunya.</p>
+                        @endif
                     @endif
                 </fieldset>
             @endforeach
@@ -113,11 +123,40 @@
 
             <div class="flex max-w-xl flex-col gap-6 rounded-lg bg-white p-6 shadow-xs md:p-8">
                 <x-file-input name="person_image" label="Foto seluruh badan" :required="true" hint="Gunakan foto berdiri menghadap depan dengan tubuh dan kaki terlihat jelas. JPEG atau PNG, maksimal 10 MB." />
+                <noscript>
+                    <div class="flex flex-col gap-3 rounded-md bg-linen p-4 text-sm">
+                        <strong>Sebelum fotomu diproses</strong>
+                        <ul class="flex list-disc flex-col gap-1 pl-5 text-taupe">
+                            @foreach ($privacyPoints as $point)
+                                <li>{{ $point }}</li>
+                            @endforeach
+                        </ul>
+                        <label class="flex items-start gap-2">
+                            <input type="checkbox" name="privacy_consent" value="1" class="mt-1">
+                            <span>Saya sudah membaca dan setuju.</span>
+                        </label>
+                    </div>
+                </noscript>
                 <div class="flex flex-wrap items-center gap-3">
                     <x-button label="Buat Preview" />
                     <x-loading message="AI sedang membuat preview. Outfit penuh diproses dalam dua tahap dan dapat memakan waktu beberapa menit. Jangan tutup halaman ini." :hidden="true" />
                 </div>
             </div>
         </form>
+
+        <dialog id="privasi-try-on" aria-labelledby="privasi-try-on-judul" class="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg bg-white p-6 text-charcoal shadow-xs backdrop:bg-charcoal/50 md:p-8">
+            <form method="dialog" class="flex flex-col gap-5">
+                <h2 id="privasi-try-on-judul" class="font-serif text-2xl font-medium italic">Sebelum fotomu diproses</h2>
+                <ul class="flex list-disc flex-col gap-2 pl-5 text-taupe">
+                    @foreach ($privacyPoints as $point)
+                        <li>{{ $point }}</li>
+                    @endforeach
+                </ul>
+                <div class="flex flex-wrap justify-end gap-3">
+                    <x-button label="Batal" variant="secondary" value="cancel" />
+                    <x-button label="Setuju dan Lanjutkan" value="confirm" />
+                </div>
+            </form>
+        </dialog>
     </div>
 @endsection

@@ -1,7 +1,10 @@
 @extends('layouts.app')
 
-@section('title', 'Catalog')
+@section('title', $items->currentPage() > 1 ? 'Catalog — Halaman '.$items->currentPage() : 'Catalog')
 @section('description', 'Jelajahi Catalog StyloMate dan pilih pakaian untuk dicoba lewat Try On.')
+@if ($items->currentPage() > 1)
+@section('canonical', $items->url($items->currentPage()))
+@endif
 
 @section('content')
     <section class="flex flex-wrap items-center justify-between gap-8 overflow-hidden rounded-lg bg-grad-soft p-8 md:p-14">
@@ -62,7 +65,7 @@
     <section aria-labelledby="judul-hasil" class="mt-10 flex flex-col gap-6">
         <div class="flex items-baseline justify-between gap-4 border-b border-rose pb-4">
             <h2 id="judul-hasil" class="font-serif text-[22px] font-medium leading-[30px]">{{ $heading }}</h2>
-            <span class="text-sm text-taupe">{{ count($items) }} pakaian</span>
+            <span class="text-sm text-taupe">{{ $items->total() }} pakaian</span>
         </div>
 
         @if (count($items) > 0)
@@ -71,6 +74,21 @@
                     <x-product-card :item="$item" :href="route('catalog.show', $item['id'])" :try-on-href="route('try-on.index', ['catalog_item_id' => $item['id']])" />
                 @endforeach
             </div>
+            @if ($items->hasPages())
+                <nav aria-label="Halaman Catalog" class="flex items-center justify-between gap-4 border-t border-rose pt-6">
+                    @if ($items->onFirstPage())
+                        <span></span>
+                    @else
+                        <x-button label="Sebelumnya" :href="$items->previousPageUrl()" variant="secondary" type="button" />
+                    @endif
+                    <span class="text-sm text-taupe">Halaman {{ $items->currentPage() }} dari {{ $items->lastPage() }}</span>
+                    @if ($items->hasMorePages())
+                        <x-button label="Berikutnya" :href="$items->nextPageUrl()" variant="secondary" type="button" />
+                    @else
+                        <span></span>
+                    @endif
+                </nav>
+            @endif
         @elseif ($search !== '' || $category !== '')
             <x-empty-state title="Pakaian tidak ditemukan" message="Coba kata kunci atau kategori lain." action-label="Hapus Filter" :action-url="route('catalog.index')" />
         @else

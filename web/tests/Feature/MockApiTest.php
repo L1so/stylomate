@@ -70,6 +70,11 @@ class MockApiTest extends TestCase
         $this->get('/catalog/999')->assertNotFound();
     }
 
+    public function test_mock_catalog_returns_not_found_past_last_page(): void
+    {
+        $this->get('/catalog?page=2')->assertNotFound();
+    }
+
     public function test_mock_catalog_search_and_category_filter(): void
     {
         $this->get('/catalog?search=jeans')
@@ -120,5 +125,20 @@ class MockApiTest extends TestCase
         $this->get('/media/wardrobe/11')
             ->assertOk()
             ->assertHeader('Content-Type', 'image/png');
+
+        $this->get('/media/wardrobe/11?size=thumb')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+    }
+
+    public function test_mock_wardrobe_and_profile_pages_load_with_paged_lists(): void
+    {
+        $this->post('/login', [
+            'email' => MockFastApiClient::DEMO_EMAIL,
+            'password' => MockFastApiClient::DEMO_PASSWORD,
+        ]);
+
+        $this->get('/wardrobe')->assertOk()->assertSee('Kaos Garis')->assertSee('Sepatu Putih');
+        $this->get('/profile')->assertOk()->assertSee('Santai ke Kampus');
     }
 }
