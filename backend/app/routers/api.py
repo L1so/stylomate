@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -36,8 +36,31 @@ def garment(item, kind):
     return result
 
 def outfit_data(db, outfit):
-    ids = list(db.scalars(select(OutfitItem.wardrobe_item_id).where(OutfitItem.outfit_id == outfit.id)))
-    return {'id': outfit.id, 'name': outfit.name, 'wardrobe_item_ids': ids}
+    category_order = case(
+        (WardrobeItem.category == 'top', 1),
+        (WardrobeItem.category == 'bottom', 2),
+        (WardrobeItem.category == 'shoes', 3),
+        (WardrobeItem.category == 'accessory', 4),
+        else_=99,
+    )
+
+    query = (
+        select(OutfitItem.wardrobe_item_id)
+        .join(
+            WardrobeItem,
+            WardrobeItem.id == OutfitItem.wardrobe_item_id,
+        )
+        .where(OutfitItem.outfit_id == outfit.id)
+        .order_by(category_order, OutfitItem.id)
+    )
+
+    ids = list(db.scalars(query))
+
+    return {
+        'id': outfit.id,
+        'name': outfit.name,
+        'wardrobe_item_ids': ids,
+    }
 
 def result_data(result):
     return {'generation_id': result.id, 'id': result.id, 'saved': result.saved, 'image_url': f'/api/try-on/{result.id}/image', 'wardrobe_item_id': result.wardrobe_item_id, 'catalog_item_id': result.catalog_item_id}
@@ -150,7 +173,12 @@ def outfits(db: Session = Depends(get_db), user: User = Depends(current_user)):
 
 @router.post('/outfits', status_code=201)
 def add_outfit(body: OutfitCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    items = [owned(db, WardrobeItem, identity, user) for identity in set(body.wardrobe_item_ids)]
+    unique_ids = list(dict.fromkeys(body.wardrobe_item_ids))
+
+    items = [
+        owned(db, WardrobeItem, identity, user)
+        for identity in unique_ids
+    ]
     if not {'top', 'bottom'} <= {i.category for i in items}:
         raise HTTPException(422, 'An outfit requires a top and a bottom')
     outfit = Outfit(user_id=user.id, name=body.name)
