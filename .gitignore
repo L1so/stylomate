@@ -55,3 +55,7 @@ Thumbs.db
 
 # Local reference material
 _ref/
+output/pdf/Laporan_Ringkas_Arsitektur_StyloMate.pdf
+docs/architecture/StyloMate_Architecture.drawio
+.gitignore
+docs/architecture/StyloMate_Architecture.excalidraw

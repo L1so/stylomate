@@ -4,6 +4,23 @@ PRD 1.1: Browser → Laravel Blade (`web/`, members 2/4) → FastAPI (`backend/`
 
 The FastAPI MVP implements auth, catalog, wardrobe, outfits, rule-based recommendations and AI orchestration. Laravel Blade lives in `web/`; `frontend/` is legacy React and is not the target UI. AI inference requires the real service from member 1. See `docs/API_CONTRACT.md` for integration details and limitations.
 
+## Cara nyalain
+
+Di satu terminal
+
+```bash
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Di terminal lainnya.
+
+```bash
+cd web
+composer install
+npm ci
+composer run dev
+```
+
 ## Backend development
 
 Requirements: Python 3.10+, Docker Compose v2, installed dependencies from `backend/requirements.txt`.
