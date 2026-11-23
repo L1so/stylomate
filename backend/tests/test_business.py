@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import jwt
 import httpx
+import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 from app.main import app
@@ -201,7 +202,7 @@ def test_lower_body_and_full_outfit_run_expected_ai_stages(monkeypatch):
     assert full.json()['data']['outfit_id'] == outfit_id
     assert full.json()['data']['wardrobe_item_id'] is None
     assert full.json()['data']['catalog_item_id'] is None
-    assert categories == ['lower-body', 'upper-body', 'lower-body']
+    assert categories == ['lower-body', 'lower-body', 'upper-body']
 
     foreign = client.post(
         '/api/try-on/generate',
@@ -218,6 +219,32 @@ def test_ai_failure(monkeypatch):
     monkeypatch.setattr('app.routers.api.httpx.Client', lambda **kwargs: original(transport=httpx.MockTransport(lambda r: httpx.Response(500)), **kwargs))
     response = client.post('/api/try-on/generate', headers=headers, data={'wardrobe_item_id': identity}, files={'person_image': ('p.png', picture(), 'image/png')})
     assert response.status_code == 503
+
+
+@pytest.mark.parametrize('zero_gpu', [False, True])
+def test_ai_reports_missing_lower_body_as_a_photo_validation_error(monkeypatch, zero_gpu):
+    headers = auth()
+    identity = add(headers, 'bottom')
+    original = httpx.Client
+    monkeypatch.setattr(settings, 'ai_hf_zerogpu', zero_gpu)
+
+    def respond(request):
+        if not zero_gpu:
+            return httpx.Response(422, headers={'X-StyloMate-Error': 'lower_body_not_visible'})
+        if request.method == 'POST':
+            return httpx.Response(200, json={'event_id': 'test'})
+        return httpx.Response(200, content='event: error\ndata: {"error": "lower_body_not_visible"}\n\n')
+
+    monkeypatch.setattr(
+        'app.routers.api.httpx.Client',
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    response = client.post(
+        '/api/try-on/generate', headers=headers, data={'wardrobe_item_id': identity},
+        files={'person_image': ('p.png', picture(), 'image/png')},
+    )
+    assert response.status_code == 422
+    assert response.json()['error']['fields'][0]['field'] == 'person_image'
 
 def test_preview_expiry_cleanup_and_saved_retention(database, monkeypatch):
     from sqlalchemy.orm import Session

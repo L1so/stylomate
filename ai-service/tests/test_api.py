@@ -3,10 +3,12 @@ from io import BytesIO
 from threading import Event
 
 from fastapi.testclient import TestClient
+import numpy as np
 from PIL import Image
 import pytest
 
 import app
+from inference import LowerBodyNotVisible, garment_masks
 
 
 def make_client(application) -> TestClient:
@@ -68,6 +70,44 @@ def test_readiness_requires_startup():
     with make_client(application) as client:
         assert client.get("/health").status_code == 200
     assert make_client(application).get("/health").status_code == 503
+
+
+def test_lower_body_mask_protects_shirt_shoes_and_distant_background():
+    labels = np.zeros((96, 96), dtype=np.uint8)
+    labels[15:40, 30:65] = 4  # shirt
+    labels[40:79, 35:60] = 6  # pants
+    labels[79:85, 35:60] = 9  # shoes
+
+    mask, alpha = garment_masks(labels, {6}, 0)
+    with mask, alpha:
+        for region in (mask, alpha):
+            assert region.getpixel((48, 55)) == 255
+            assert region.getpixel((48, 39)) == 0
+            assert region.getpixel((48, 80)) == 0
+            assert region.getpixel((3, 50)) == 0
+        assert mask.getpixel((32, 55)) == 255
+    mask, alpha = garment_masks(labels, {4}, 0)
+    with mask, alpha:
+        assert alpha.getpixel((48, 22)) == 255
+        assert alpha.getpixel((48, 40)) == 0
+
+
+def test_garment_mask_requires_a_visible_region():
+    labels = np.full((96, 96), 4, dtype=np.uint8)
+    assert garment_masks(labels, {6}, 0) is None
+
+
+def test_missing_lower_body_returns_validation_error_and_releases_slot():
+    def generate(person, garment, category):
+        if category == "lower-body":
+            raise LowerBodyNotVisible()
+        return garment.copy()
+
+    with make_client(app.create_app(lambda: generate, token="")) as client:
+        response = try_on(client, data={"category": "lower-body"})
+        assert response.status_code == 422
+        assert response.headers["X-StyloMate-Error"] == "lower_body_not_visible"
+        assert try_on(client).status_code == 200
 
 
 def test_service_auth_when_configured():

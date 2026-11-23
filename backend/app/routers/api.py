@@ -7,7 +7,9 @@ from app.database import get_db
 from app.models import User, WardrobeItem, CatalogItem, Outfit, OutfitItem, TryOnResult
 from app.schemas import Register, Login, OutfitCreate, SaveResult, Category, Style
 from app.services.security import current_user, passwords, issue_token
-from app.services.ai import ai_headers, generate_zerogpu, probe_ai, wait_for_ai
+from app.services.ai import (
+    LOWER_BODY_NOT_VISIBLE, ai_headers, generate_zerogpu, lower_body_validation_error, probe_ai, wait_for_ai,
+)
 from app.services.images import MAX_BYTES, normalize_image, store_image, image_path, remove_image
 from app.config import settings
 import httpx
@@ -251,6 +253,8 @@ def generate_ai_image(client, person, garment, category):
             data={'category': category},
             headers=ai_headers(),
         ) as response:
+            if response.status_code == 422 and response.headers.get('X-StyloMate-Error') == LOWER_BODY_NOT_VISIBLE:
+                raise lower_body_validation_error()
             response.raise_for_status()
             data = bytearray()
             for chunk in response.iter_bytes():
@@ -283,9 +287,10 @@ def generate(
         bottoms = [item for item in items if item.category == 'bottom']
         if len(tops) != 1 or len(bottoms) != 1:
             raise HTTPException(422, 'An outfit try-on requires exactly one top and one bottom')
+        # Inpaint the bottom on the original pose. Upper-body blending preserves that edit.
         stages = [
-            (tops[0], 'upper-body'),
             (bottoms[0], 'lower-body'),
+            (tops[0], 'upper-body'),
         ]
     else:
         item = owned(db, WardrobeItem, wardrobe_item_id, user) if wardrobe_item_id is not None else catalog_item(db, catalog_item_id)
