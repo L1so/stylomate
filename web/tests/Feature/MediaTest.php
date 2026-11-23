@@ -45,6 +45,28 @@ class MediaTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->url() === self::WARDROBE_URL && $request->hasHeader('Authorization', 'Bearer jwt-1'));
     }
 
+    public function test_wardrobe_thumbnail_requests_small_size_from_fastapi(): void
+    {
+        Http::fake(['http://fastapi.test/api/wardrobe/5/image?size=thumb' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/media/wardrobe/5?size=thumb')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+
+        Http::assertSent(fn (Request $request) => $request->url() === 'http://fastapi.test/api/wardrobe/5/image?size=thumb'
+            && $request->hasHeader('Authorization', 'Bearer jwt-1'));
+    }
+
+    public function test_wardrobe_image_without_size_does_not_send_size_param(): void
+    {
+        Http::fake(['http://fastapi.test/api/wardrobe/5/image' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
+
+        $this->withSession(['api_token' => 'jwt-1'])->get('/media/wardrobe/5')->assertOk();
+
+        Http::assertSent(fn (Request $request) => $request->url() === 'http://fastapi.test/api/wardrobe/5/image');
+    }
+
     public function test_download_sends_attachment_header(): void
     {
         Http::fake([self::TRY_ON_URL => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png'])]);
@@ -115,8 +137,8 @@ class MediaTest extends TestCase
     {
         Http::fake([
             'http://fastapi.test/api/auth/me' => Http::response(['data' => ['id' => 1, 'name' => 'Budi', 'email' => 'budi@example.com']]),
-            'http://fastapi.test/api/outfits' => Http::response(['data' => []]),
-            'http://fastapi.test/api/try-on/history' => Http::response(['data' => [
+            'http://fastapi.test/api/outfits?*' => Http::response(['data' => []]),
+            'http://fastapi.test/api/try-on/history?*' => Http::response(['data' => [
                 ['id' => 9, 'catalog_item_id' => 1, 'wardrobe_item_id' => null, 'image_url' => '/api/try-on/9/image', 'created_at' => '2026-11-22T07:00:00Z'],
             ]]),
         ]);

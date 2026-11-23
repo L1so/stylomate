@@ -95,7 +95,7 @@ class MockFastApiClient extends FastApiClient
     }
 
     // Gambar privat mock (try-on/wardrobe) dari endpoint tetap per id
-    protected function image(string $uri): array
+    protected function image(string $uri, array $query = []): array
     {
         if (preg_match('#^/(try-on|wardrobe)/\d+/image$#', $uri) !== 1) {
             throw new FastApiException($this->messageFor(404), 404);
@@ -176,15 +176,6 @@ class MockFastApiClient extends FastApiClient
     // Meniru endpoint FastAPI untuk katalog, outfit, dan riwayat try-on; mengembalikan isi "data" (sudah dibuka)
     protected function send(string $method, string $uri, array $data = []): array
     {
-        if ($method === 'get' && $uri === '/catalog') {
-            // Meniru pencarian ?q= (nama/brand) dan filter kategori FastAPI
-            $search = Str::lower($data['q'] ?? '');
-            $items = array_filter(self::CATALOG, fn (array $item) => ($search === '' || Str::contains(Str::lower($item['name'].' '.$item['brand']), $search))
-                && (empty($data['category']) || $item['category'] === $data['category']));
-
-            return array_map(fn (array $item) => $this->withIllustration($item), array_values($items));
-        }
-
         if ($method === 'get' && preg_match('#^/catalog/(\d+)$#', $uri, $match) === 1) {
             return $this->withIllustration($this->findById(self::CATALOG, (int) $match[1]));
         }
@@ -275,6 +266,35 @@ class MockFastApiClient extends FastApiClient
         }
 
         throw new FastApiException($this->messageFor(404), 404);
+    }
+
+    protected function sendWithMeta(string $method, string $uri, array $data = []): array
+    {
+        $offset = (int) ($data['offset'] ?? 0);
+        $limit = (int) ($data['limit'] ?? self::CATALOG_PER_PAGE);
+
+        if ($method === 'get' && in_array($uri, ['/wardrobe', '/outfits', '/try-on/history'], true)) {
+            $all = $this->send($method, $uri, $data);
+
+            return [
+                'data' => array_slice($all, $offset, $limit),
+                'meta' => ['total' => count($all), 'limit' => $limit, 'offset' => $offset],
+            ];
+        }
+
+        if ($method !== 'get' || $uri !== '/catalog') {
+            throw new FastApiException($this->messageFor(404), 404);
+        }
+
+        // Meniru pencarian ?q= (nama/brand) dan filter kategori FastAPI
+        $search = Str::lower($data['q'] ?? '');
+        $items = array_values(array_filter(self::CATALOG, fn (array $item) => ($search === '' || Str::contains(Str::lower($item['name'].' '.$item['brand']), $search))
+            && (empty($data['category']) || $item['category'] === $data['category'])));
+
+        return [
+            'data' => array_map(fn (array $item) => $this->withIllustration($item), array_slice($items, $offset, $limit)),
+            'meta' => ['total' => count($items), 'limit' => $limit, 'offset' => $offset],
+        ];
     }
 
     private function nextId(array $rows): int

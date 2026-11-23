@@ -44,11 +44,11 @@ class TryOnTest extends TestCase
             '*/catalog/5' => Http::response(['data' => $this->catalogBottom()]),
             '*/catalog/7' => Http::response(['data' => ['id' => 7, 'name' => 'Dress', 'category' => 'dress'] + $catalogItem]),
             '*/catalog*' => Http::response(['data' => [$this->catalogTop(), $this->catalogBottom()]]),
-            '*/wardrobe' => Http::response(['data' => [
+            '*/wardrobe?*' => Http::response(['data' => [
                 ['id' => 5, 'name' => 'Kemeja Putih', 'category' => 'top', 'color' => 'putih', 'style' => 'formal'],
                 ['id' => 6, 'name' => 'Celana Bahan', 'category' => 'bottom', 'color' => 'hitam', 'style' => 'formal'],
             ]]),
-            '*/outfits' => Http::response(['data' => [
+            '*/outfits?*' => Http::response(['data' => [
                 ['id' => 9, 'name' => 'Formal Lengkap', 'wardrobe_item_ids' => [5, 6]],
             ]]),
         ]);
@@ -79,7 +79,42 @@ class TryOnTest extends TestCase
             ->assertSee('data-loading', false)
             ->assertSee('noindex, nofollow', false);
 
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/catalog'));
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/catalog?'));
+    }
+
+    public function test_index_shows_privacy_dialog(): void
+    {
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('data-consent-dialog="privasi-try-on"', false)
+            ->assertSee('id="privasi-try-on"', false)
+            ->assertSee('Foto badanmu tidak kami simpan')
+            ->assertSee('name="privacy_consent"', false);
+    }
+
+    public function test_index_has_no_javascript_privacy_consent_and_catalog_link(): void
+    {
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('<noscript>', false)
+            ->assertSee('name="privacy_consent" value="1"', false)
+            ->assertSee('Saya sudah membaca dan setuju')
+            ->assertSee('Cari di Catalog');
+    }
+
+    public function test_privacy_text_without_configured_ai_provider_hides_third_party_name(): void
+    {
+        config(['services.fastapi.ai_provider' => '']);
+        $this->fakePickers();
+
+        $this->asUser()->get('/try-on')
+            ->assertOk()
+            ->assertSee('Foto diproses oleh server AI StyloMate')
+            ->assertDontSee('pihak ketiga');
     }
 
     public function test_catalog_item_id_from_catalog_button_is_preselected(): void
@@ -145,8 +180,8 @@ class TryOnTest extends TestCase
         Http::fake([
             '*/catalog/99' => Http::response(['error' => ['message' => 'x']], 404),
             '*/catalog*' => Http::response(['data' => []]),
-            '*/wardrobe' => Http::response(['data' => []]),
-            '*/outfits' => Http::response(['data' => []]),
+            '*/wardrobe?*' => Http::response(['data' => []]),
+            '*/outfits?*' => Http::response(['data' => []]),
         ]);
 
         $this->asUser()->get('/try-on?catalog_item_id=99')->assertNotFound();
@@ -170,7 +205,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['id' => 77, 'generation_id' => 77, 'saved' => false, 'image_url' => '/api/try-on/77/image', 'wardrobe_item_id' => null, 'catalog_item_id' => 3]], 201)]);
 
-        $this->asUser()->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 77
                 && $result['generation_id'] === 77
@@ -190,7 +225,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['generation_id' => 78]], 201)]);
 
-        $this->asUser()->post('/try-on/generate', ['item' => 'wardrobe:5', 'person_image' => $this->png()])
+        $this->asUser()->post('/try-on/generate', ['item' => 'wardrobe:5', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 78);
 
@@ -202,7 +237,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['generation_id' => 79, 'outfit_id' => 9]], 201)]);
 
-        $this->asUser()->post('/try-on/generate', ['item' => 'outfit:9', 'person_image' => $this->png()])
+        $this->asUser()->post('/try-on/generate', ['item' => 'outfit:9', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect(route('try-on.index'))
             ->assertSessionHas('try_on_result', fn (array $result) => $result['id'] === 79 && $result['item'] === 'outfit:9');
 
@@ -237,13 +272,25 @@ class TryOnTest extends TestCase
             null => null,
             default => $this->png(),
         };
-        $input = array_filter($input, fn ($value) => $value !== null);
+        $input = array_filter($input, fn ($value) => $value !== null) + ['privacy_consent' => '1'];
 
         $this->asUser()->from('/try-on')->post('/try-on/generate', $input)
             ->assertRedirect('/try-on')
             ->assertSessionHasErrors($errorField);
 
         Http::assertNothingSent();
+    }
+
+    public function test_generate_requires_privacy_consent(): void
+    {
+        $this->asUser()->from('/try-on')->post('/try-on/generate', [
+            'item' => 'catalog:3',
+            'person_image' => UploadedFile::fake()->create('foto.jpg', 100, 'image/jpeg'),
+        ])
+            ->assertRedirect('/try-on')
+            ->assertSessionHasErrors('privacy_consent');
+
+        Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/try-on/generate'));
     }
 
     public function test_generate_shows_fastapi_422_for_unsupported_item(): void
@@ -253,7 +300,7 @@ class TryOnTest extends TestCase
             'fields' => [['field' => 'wardrobe_item_id', 'message' => 'Try On hanya mendukung atasan dan bawahan.']],
         ]], 422)]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:6', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:6', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
             ->assertSessionHasErrors(['wardrobe_item_id' => 'Try On hanya mendukung atasan dan bawahan.']);
     }
@@ -262,7 +309,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response('trace internal', 500)]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
             ->assertSessionHas('error', 'Terjadi kesalahan di server. Coba lagi nanti.')
             ->assertSessionHasInput('item', 'catalog:3');
@@ -272,7 +319,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => fn () => throw new ConnectionException('cURL error 28: timeout')]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertRedirect('/try-on')
             ->assertSessionHas('error', 'Server StyloMate belum bisa dihubungi. Coba lagi sebentar lagi.');
     }
@@ -281,7 +328,7 @@ class TryOnTest extends TestCase
     {
         Http::fake(['*/try-on/generate' => Http::response(['data' => ['saved' => false]])]);
 
-        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])
+        $this->asUser()->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])
             ->assertSessionHas('error');
     }
 
@@ -333,7 +380,7 @@ class TryOnTest extends TestCase
 
     public function test_guest_cannot_generate_or_save(): void
     {
-        $this->post('/try-on/generate', ['item' => 'catalog:3', 'person_image' => $this->png()])->assertRedirect(route('login'));
+        $this->post('/try-on/generate', ['item' => 'catalog:3', 'privacy_consent' => '1', 'person_image' => $this->png()])->assertRedirect(route('login'));
         $this->post('/try-on/save', ['generation_id' => 1])->assertRedirect(route('login'));
 
         Http::assertNothingSent();

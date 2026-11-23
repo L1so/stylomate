@@ -17,12 +17,14 @@ class GenerateTryOnRequest extends FormRequest
         return [
             'item' => ['required', 'string', 'regex:/^(wardrobe|catalog|outfit):[1-9][0-9]{0,9}$/'],
             'person_image' => ['required', 'file', 'mimetypes:image/jpeg,image/png', 'mimes:jpg,jpeg,png', 'max:10240'],
+            'privacy_consent' => ['accepted'],
         ];
     }
 
     public function messages(): array
     {
         return [
+            'privacy_consent.accepted' => 'Setujui pemberitahuan privasi sebelum membuat preview.',
             'item.required' => 'Pilih satu pakaian atau outfit untuk Try On.',
             'item.regex' => 'Pilihan pakaian tidak valid.',
             'item.string' => 'Pilihan pakaian tidak valid.',

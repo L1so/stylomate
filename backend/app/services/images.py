@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.config import settings
 
 MAX_BYTES = 10 * 1024 * 1024
+THUMBNAIL_SIZE = (600, 800)
 
 def normalize_image(data):
     if len(data) > MAX_BYTES:
@@ -38,8 +39,29 @@ def image_path(name):
         raise HTTPException(404, 'Image not found')
     return path
 
+def thumbnail_path(name):
+    source = image_path(name)
+    target = source.with_name(source.stem + '.thumb.jpg')
+    if not target.is_file():
+        partial = source.with_name(f'{source.stem}.{uuid4().hex}.tmp')
+        try:
+            with Image.open(source) as im:
+                im.thumbnail(THUMBNAIL_SIZE)
+                im.convert('RGB').save(partial, format='JPEG', quality=85)
+            partial.replace(target)
+        except (OSError, Image.DecompressionBombError):
+            return source
+        finally:
+            partial.unlink(missing_ok=True)
+    return target
+
+def sized_image_path(name, size):
+    return thumbnail_path(name) if size == 'thumb' else image_path(name)
+
 def remove_image(name):
     try:
-        image_path(name).unlink(missing_ok=True)
+        path = image_path(name)
     except HTTPException:
-        pass
+        return
+    path.with_name(path.stem + '.thumb.jpg').unlink(missing_ok=True)
+    path.unlink(missing_ok=True)

@@ -280,6 +280,98 @@ def test_catalog_seed_is_idempotent(database, monkeypatch):
     assert client.get(items[0]['image_url']).status_code == 200
     assert len(client.get('/api/catalog?category=bottom').json()['data']) == 1
 
+def test_catalog_pagination(database, monkeypatch):
+    from sqlalchemy.orm import Session
+    from app.maintenance import seed_catalog
+    monkeypatch.setattr('app.maintenance.SessionLocal', lambda: Session(database))
+    seed_catalog()
+    first = client.get('/api/catalog?limit=2').json()
+    assert len(first['data']) == 2
+    assert first['meta'] == {'total': 3, 'limit': 2, 'offset': 0}
+    second = client.get('/api/catalog?limit=2&offset=2').json()
+    assert len(second['data']) == 1
+    assert second['meta']['total'] == 3
+    assert client.get('/api/catalog?category=bottom&limit=1').json()['meta']['total'] == 1
+    assert client.get('/api/catalog?limit=49').status_code == 422
+    assert client.get('/api/catalog?offset=-1').status_code == 422
+    for item in first['data'] + second['data']:
+        assert item['thumbnail_url'].startswith(f"/api/catalog/{item['id']}/image?size=thumb&v=")
+        assert item['image_url'].startswith(f"/api/catalog/{item['id']}/image?v=")
+
+def test_private_lists_are_paginated():
+    alice, bob = auth(), auth('bob@example.com')
+    top, bottom = add(alice), add(alice, 'bottom')
+    add(alice)
+    first = client.get('/api/wardrobe?limit=2', headers=alice).json()
+    assert len(first['data']) == 2
+    assert first['meta'] == {'total': 3, 'limit': 2, 'offset': 0}
+    assert len(client.get('/api/wardrobe?limit=2&offset=2', headers=alice).json()['data']) == 1
+    assert client.get('/api/wardrobe?limit=101', headers=alice).status_code == 422
+    assert client.get('/api/wardrobe', headers=alice).json()['meta']['limit'] == 100
+    assert client.get('/api/wardrobe', headers=bob).json() == {'data': [], 'meta': {'total': 0, 'limit': 100, 'offset': 0}}
+    for name in ('Look', 'Second look'):
+        assert client.post('/api/outfits', headers=alice, json={'name': name, 'wardrobe_item_ids': [top, bottom]}).status_code == 201
+    outfits = client.get('/api/outfits?limit=1', headers=alice).json()
+    assert len(outfits['data']) == 1
+    assert outfits['meta'] == {'total': 2, 'limit': 1, 'offset': 0}
+    assert client.get('/api/try-on/history', headers=alice).json() == {'data': [], 'meta': {'total': 0, 'limit': 100, 'offset': 0}}
+
+def test_wardrobe_thumbnail_is_private_and_resized():
+    alice, bob = auth(), auth('bob@example.com')
+    output = BytesIO()
+    Image.new('RGB', (1200, 1600), 'white').save(output, 'JPEG')
+    response = client.post('/api/wardrobe', headers=alice, data={'name': 'Big', 'category': 'top', 'color': 'white', 'style': 'casual'}, files={'image': ('big.jpg', output.getvalue(), 'image/jpeg')})
+    assert response.status_code == 201, response.text
+    identity = response.json()['data']['id']
+    thumb = client.get(f'/api/wardrobe/{identity}/image?size=thumb', headers=alice)
+    assert thumb.status_code == 200
+    assert thumb.headers['cache-control'] == 'private, no-store'
+    with Image.open(BytesIO(thumb.content)) as im:
+        assert im.width <= 600 and im.height <= 800
+    assert client.get(f'/api/wardrobe/{identity}/image?size=thumb').status_code == 401
+    assert client.get(f'/api/wardrobe/{identity}/image?size=thumb', headers=bob).status_code == 404
+
+def test_thumbnail_falls_back_to_original_when_source_is_broken():
+    from pathlib import Path
+    from app.services.images import store_image, thumbnail_path, image_path
+    name = store_image(b'not an image')
+    assert thumbnail_path(name) == image_path(name)
+    storage = Path(settings.storage_dir)
+    stem = Path(name).stem
+    assert not (storage / f'{stem}.thumb.jpg').exists()
+    assert not list(storage.glob(f'{stem}*.tmp'))
+
+def test_catalog_thumbnail_is_resized_cached_and_removed(database, monkeypatch):
+    from pathlib import Path
+    from sqlalchemy.orm import Session
+    from app.models import CatalogItem
+    from app.services.images import store_image, remove_image
+    output = BytesIO()
+    Image.new('RGB', (1200, 1600), 'white').save(output, 'JPEG')
+    path = store_image(output.getvalue())
+    with Session(database) as db:
+        item = CatalogItem(name='Big', category='top', color='white', style='casual', image_path=path)
+        db.add(item)
+        db.commit()
+        identity = item.id
+    storage = Path(settings.storage_dir)
+    original = storage / path
+    thumb = storage / (Path(path).stem + '.thumb.jpg')
+    response = client.get(f'/api/catalog/{identity}/image?size=thumb')
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'public, max-age=86400'
+    with Image.open(BytesIO(response.content)) as im:
+        assert im.width <= 600 and im.height <= 800
+    assert thumb.is_file()
+    full = client.get(f'/api/catalog/{identity}/image')
+    assert full.status_code == 200
+    with Image.open(BytesIO(full.content)) as im:
+        assert im.size == (1200, 1600)
+    remove_image(path)
+    assert not original.exists()
+    assert not thumb.exists()
+    assert client.get(f'/api/catalog/{identity}/image?size=other').status_code == 422
+
 def test_upload_limit_and_ai_timeout(monkeypatch):
     headers = auth()
     identity = add(headers)
