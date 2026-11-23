@@ -14,8 +14,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from PIL import Image
 
-from app import MAX_BYTES, decode_image_data
-from inference import DEFAULT_MODEL_DIR, load_model
+from app import LOWER_BODY_NOT_VISIBLE, MAX_BYTES, decode_image_data
+from inference import DEFAULT_MODEL_DIR, LowerBodyNotVisible, load_model
 from prepare_assets import prepare_assets
 
 
@@ -53,6 +53,8 @@ def render(person: Image.Image, garment: Image.Image, category: str) -> str:
         with model(person, garment, category) as result, BytesIO() as output:
             result.save(output, format="JPEG", quality=90)
             return b64encode(output.getvalue()).decode("ascii")
+    except LowerBodyNotVisible:
+        raise Error(LOWER_BODY_NOT_VISIBLE) from None
     finally:
         generation_lock.release()
 

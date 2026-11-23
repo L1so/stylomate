@@ -13,12 +13,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from inference import ImageGenerator, load_model
+from inference import ImageGenerator, LowerBodyNotVisible, load_model
 
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 20_000_000
 logger = logging.getLogger("uvicorn.error")
+LOWER_BODY_NOT_VISIBLE = "lower_body_not_visible"
 
 
 def decode_image_data(data: bytes) -> Image.Image:
@@ -96,6 +97,11 @@ def create_app(
                     with model(person, garment, category) as result, BytesIO() as output:
                         result.save(output, format="JPEG", quality=90)
                         data = output.getvalue()
+                except LowerBodyNotVisible:
+                    raise HTTPException(
+                        422, LOWER_BODY_NOT_VISIBLE,
+                        headers={"X-StyloMate-Error": LOWER_BODY_NOT_VISIBLE},
+                    ) from None
                 except Exception as error:
                     logger.error("Try-on inference failed (%s)", type(error).__name__)
                     raise HTTPException(503, "Could not generate a try-on preview.") from None

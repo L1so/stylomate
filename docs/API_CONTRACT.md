@@ -51,7 +51,7 @@ Wardrobe item: `{id,name,category,color,style,image_url}`. Catalog additionally 
 
 ## AI and privacy lifecycle
 
-FastAPI calls private AI `POST /generate` with `person_image`, `garment_image`, and `category=upper-body|lower-body`. Outfit generation is sequential: the top is applied first, then the bottom is applied to that intermediate image. Optional `AI_SERVICE_TOKEN` adds a bearer header. AI success is JPEG/PNG bytes, not JSON.
+FastAPI calls private AI `POST /generate` with `person_image`, `garment_image`, and `category=upper-body|lower-body`. Outfit generation applies the bottom first, then applies the top to that preview. Optional `AI_SERVICE_TOKEN` adds a bearer header. Successful AI requests return JPEG or PNG bytes.
 
 Person photos are held in request memory and never persisted by this backend. AI service must apply its own temporary-input cleanup policy. Generated output is temporarily stored for preview; `saved=false`, maximum one hour access. User explicitly saves it using its server-issued generation ID; clients cannot supply arbitrary image paths/URLs. Saved output persists until deleted. Run `python -m app.maintenance cleanup-previews` every 15 minutes to remove expired unsaved rows/files; the operator must configure this schedule.
 

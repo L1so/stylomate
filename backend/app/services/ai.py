@@ -8,8 +8,18 @@ from time import monotonic, sleep
 
 import httpx
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 
 from app.config import settings
+
+LOWER_BODY_NOT_VISIBLE = "lower_body_not_visible"
+
+
+def lower_body_validation_error() -> RequestValidationError:
+    return RequestValidationError([{
+        "loc": ("body", "person_image"),
+        "msg": "Gunakan foto seluruh badan dengan pinggang dan kaki terlihat jelas.",
+    }])
 
 
 def ai_headers() -> dict[str, str]:
@@ -86,7 +96,13 @@ def generate_zerogpu(
                 event = line.removeprefix("event:").strip()
             elif line.startswith("data:") and event == "complete":
                 return decode_zerogpu_image(line.removeprefix("data:").strip(), max_bytes)
-            elif event == "error":
+            elif line.startswith("data:") and event == "error":
+                try:
+                    error = json.loads(line.removeprefix("data:").strip())
+                except ValueError:
+                    break
+                if isinstance(error, dict) and error.get("error") == LOWER_BODY_NOT_VISIBLE:
+                    raise lower_body_validation_error()
                 break
 
     raise HTTPException(503, "AI could not finish the queued preview; please retry")

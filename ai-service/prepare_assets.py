@@ -39,10 +39,32 @@ ASSETS = (
         "zhengchong/CatVTON-MaskFree",
         "model",
         "b034d7700d6bf0e8ae1c01f9398f2eb54df5f52a",
+        ("vitonhd-16k-512/attention/model.safetensors",),
+    ),
+    (
+        "inpaint",
+        "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        "model",
+        "8a4288a76071f7280aedbdb3253bdb9e9d5d84bb",
         (
-            "vitonhd-16k-512/attention/model.safetensors",
-            "dresscode-16k-512/attention/model.safetensors",
+            "scheduler/scheduler_config.json",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
         ),
+    ),
+    (
+        "masked-attention",
+        "zhengchong/CatVTON",
+        "model",
+        "2969fcf85fe62f2036605716f0b56f0b81d01d79",
+        ("mix-48k-1024/attention/model.safetensors",),
+    ),
+    (
+        "parser",
+        "mattmdjaga/segformer_b2_clothes",
+        "model",
+        "584abc1e1d260e23c0fc627c5217a09b2b461046",
+        ("config.json", "preprocessor_config.json", "model.safetensors"),
     ),
 )
 
