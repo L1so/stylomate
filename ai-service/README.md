@@ -1,6 +1,6 @@
 # StyloMate AI Service
 
-Upper-body virtual try-on for the StyloMate FastAPI backend. The service loads the pretrained [CatVTON MaskFree VITON-HD 512 checkpoint](https://huggingface.co/zhengchong/CatVTON-MaskFree/tree/main/vitonhd-16k-512) once and generates a 384×512 preview. The backend owns preview storage and saved history.
+Upper- and lower-body virtual try-on for the StyloMate FastAPI backend. The service uses the CatVTON MaskFree VITON-HD checkpoint for tops and the DressCode checkpoint for bottoms, switching attention weights on one shared 384×512 pipeline to avoid loading two full models into GPU memory. The backend owns outfit sequencing, preview storage, and saved history.
 
 ## Setup
 
@@ -23,7 +23,7 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
 - `GET /health` returns `200 {"status":"ok"}` once the model is loaded.
-- `POST /generate` accepts multipart JPEG/PNG `person_image` and `garment_image` files and the form field `category=upper-body`. Each file can be up to 10 MiB and 20 megapixels. Success is raw `image/jpeg` bytes under the backend's 10 MiB response limit.
+- `POST /generate` accepts multipart JPEG/PNG `person_image` and `garment_image` files and `category=upper-body` or `category=lower-body`. Each file can be up to 10 MiB and 20 megapixels. Success is raw `image/jpeg` bytes under the backend's 10 MiB response limit.
 - Set the same `AI_SERVICE_TOKEN` in the AI and backend environments to require a bearer token for generation. For a separate host, bind or forward the service over a private network the backend can reach.
 - `AI_MODEL_DIR` overrides the local asset path. `AI_INFERENCE_STEPS` defaults to 25 and accepts values from 1 to 50. Run one worker per GPU with one generation in flight. Startup and inference timings are logged without photo contents or filenames.
 
@@ -36,13 +36,15 @@ curl --fail-with-body http://127.0.0.1:8001/generate \
   --output preview.jpg
 ```
 
+Use `category=lower-body` with a pants or skirt garment. A full outfit is orchestrated by FastAPI as two requests: upper-body first, then lower-body using the upper-body output as the next person image.
+
 When token auth is enabled, add the `Authorization: Bearer` header with the configured token to the generation request.
 
 ## Team integration
 
 Set `AI_SERVICE_URL=http://127.0.0.1:8001` in the existing backend environment when both services run on the same host. Set `FASTAPI_USE_MOCK=false` in Laravel. The default backend and Laravel AI timeouts are 300 s and 330 s respectively. Keep the deployed request timeout above the measured inference time.
 
-Register or log in, upload a real photo of a top to Wardrobe, select that top in Try-On, and upload a front-facing person photo. Generate and save the preview, then sign in again and open Profile → Try On. Use small JPEGs for the demo if the PHP host retains its default 2 MB upload limit. The catalog seed uses illustrations.
+Register or log in, upload a real top and bottom to Wardrobe, create an outfit in Mix & Match, then choose Try On from the saved outfit. Upload a front-facing full-body photo; FastAPI generates the top stage followed by the bottom stage. Use small JPEGs for the demo if the PHP host retains its default 2 MB upload limit. The catalog seed uses illustrations.
 
 Use approved photos for demos and keep photos, generated previews, weights, and tokens out of Git. The service uses in-memory image processing and closes the multipart uploads at the end of the request.
 

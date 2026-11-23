@@ -1,11 +1,11 @@
-"""Load the pinned CatVTON MaskFree pipeline and generate one upper-body image."""
+"""Load pinned CatVTON MaskFree checkpoints for upper- and lower-body try-on."""
 
 import logging
 import os
 from pathlib import Path
 import sys
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Literal
 
 from PIL import Image
 
@@ -13,8 +13,12 @@ from PIL import Image
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / ".cache" / "catvton"
 SOURCE_FILES = ("model/pipeline.py", "model/attn_processor.py", "model/utils.py", "utils.py")
 WIDTH, HEIGHT = 384, 512
-CHECKPOINT = "vitonhd-16k-512"
-ImageGenerator = Callable[[Image.Image, Image.Image], Image.Image]
+GarmentCategory = Literal["upper-body", "lower-body"]
+CHECKPOINTS: dict[GarmentCategory, str] = {
+    "upper-body": "vitonhd-16k-512",
+    "lower-body": "dresscode-16k-512",
+}
+ImageGenerator = Callable[[Image.Image, Image.Image, GarmentCategory], Image.Image]
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -36,7 +40,10 @@ def load_model(*, zerogpu: bool = False) -> ImageGenerator:
         weights / "base" / "unet" / "diffusion_pytorch_model.fp16.safetensors",
         weights / "vae" / "config.json",
         weights / "vae" / "diffusion_pytorch_model.safetensors",
-        weights / "attention" / CHECKPOINT / "attention" / "model.safetensors",
+        *(
+            weights / "attention" / checkpoint / "attention" / "model.safetensors"
+            for checkpoint in CHECKPOINTS.values()
+        ),
     ]
     for path in required:
         if not path.is_file():
@@ -73,15 +80,28 @@ def load_model(*, zerogpu: bool = False) -> ImageGenerator:
             ).to(device).eval()
             init_adapter(self.unet, cross_attn_cls=SkipAttnProcessor)
             self.attn_modules = get_trainable_module(self.unet, "attention")
-            self.auto_attn_ckpt_load(str(weights / "attention"), CHECKPOINT)
+            self.auto_attn_ckpt_load(str(weights / "attention"), CHECKPOINTS["upper-body"])
 
     started = perf_counter()
     pipeline = LocalCatVTON()
     if not zerogpu:
         torch.cuda.synchronize(device)
-    logger.info("Loaded CatVTON %s in %.2f s", CHECKPOINT, perf_counter() - started)
+    current_checkpoint = CHECKPOINTS["upper-body"]
+    logger.info("Loaded CatVTON %s in %.2f s", current_checkpoint, perf_counter() - started)
 
-    def generate(person: Image.Image, garment: Image.Image) -> Image.Image:
+    def generate(
+        person: Image.Image,
+        garment: Image.Image,
+        category: GarmentCategory,
+    ) -> Image.Image:
+        nonlocal current_checkpoint
+        checkpoint = CHECKPOINTS[category]
+        if checkpoint != current_checkpoint:
+            switch_started = perf_counter()
+            pipeline.auto_attn_ckpt_load(str(weights / "attention"), checkpoint)
+            current_checkpoint = checkpoint
+            logger.info("Switched CatVTON checkpoint to %s in %.2f s", checkpoint, perf_counter() - switch_started)
+
         torch.cuda.reset_peak_memory_stats(device)
         started = perf_counter()
         with torch.inference_mode():
@@ -95,7 +115,8 @@ def load_model(*, zerogpu: bool = False) -> ImageGenerator:
             )[0]
         torch.cuda.synchronize(device)
         logger.info(
-            "CatVTON generated %dx%d in %.2f s (peak CUDA %.0f MiB allocated, %.0f MiB reserved)",
+            "CatVTON %s generated %dx%d in %.2f s (peak CUDA %.0f MiB allocated, %.0f MiB reserved)",
+            category,
             WIDTH,
             HEIGHT,
             perf_counter() - started,

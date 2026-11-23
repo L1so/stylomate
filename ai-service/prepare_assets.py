@@ -39,7 +39,10 @@ ASSETS = (
         "zhengchong/CatVTON-MaskFree",
         "model",
         "b034d7700d6bf0e8ae1c01f9398f2eb54df5f52a",
-        ("vitonhd-16k-512/attention/model.safetensors",),
+        (
+            "vitonhd-16k-512/attention/model.safetensors",
+            "dresscode-16k-512/attention/model.safetensors",
+        ),
     ),
 )
 

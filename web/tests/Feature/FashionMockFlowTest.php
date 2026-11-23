@@ -108,13 +108,16 @@ class FashionMockFlowTest extends TestCase
             ->assertSessionHas('try_on_result');
     }
 
-    public function test_try_on_rejects_non_top_items_like_the_real_backend(): void
+    public function test_try_on_accepts_lower_body_items_and_saved_outfits(): void
     {
         $this->from('/try-on')->post('/try-on/generate', ['item' => 'catalog:5', 'person_image' => UploadedFile::fake()->image('aku.png')])
-            ->assertSessionHasErrors('catalog_item_id');
+            ->assertSessionHas('try_on_result');
 
         $this->from('/try-on')->post('/try-on/generate', ['item' => 'wardrobe:12', 'person_image' => UploadedFile::fake()->image('aku.png')])
-            ->assertSessionHasErrors('wardrobe_item_id');
+            ->assertSessionHas('try_on_result');
+
+        $this->from('/try-on')->post('/try-on/generate', ['item' => 'outfit:1', 'person_image' => UploadedFile::fake()->image('aku.png')])
+            ->assertSessionHas('try_on_result');
     }
 
     public function test_unsaved_preview_can_be_deleted_via_existing_route(): void

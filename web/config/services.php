@@ -41,6 +41,8 @@ return [
         'timeout' => (int) env('FASTAPI_TIMEOUT', 10),
         // Sisakan waktu untuk cold-start AI dan inferensi FastAPI.
         'ai_timeout' => (int) env('FASTAPI_AI_TIMEOUT', 330),
+        // Outfit menjalankan dua inferensi berurutan: upper-body lalu lower-body.
+        'ai_outfit_timeout' => (int) env('FASTAPI_AI_OUTFIT_TIMEOUT', 660),
         'ai_warmup' => env('FASTAPI_AI_WARMUP', false),
         'use_mock' => filter_var(env('FASTAPI_USE_MOCK', false), FILTER_VALIDATE_BOOL),
     ],

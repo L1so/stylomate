@@ -35,8 +35,8 @@ def garment(item, kind):
         result.update(brand=item.brand, product_url=item.product_url)
     return result
 
-def outfit_data(db, outfit):
-    category_order = case(
+def outfit_category_order():
+    return case(
         (WardrobeItem.category == 'top', 1),
         (WardrobeItem.category == 'bottom', 2),
         (WardrobeItem.category == 'shoes', 3),
@@ -44,6 +44,15 @@ def outfit_data(db, outfit):
         else_=99,
     )
 
+def outfit_items(db, outfit):
+    return list(db.scalars(
+        select(WardrobeItem)
+        .join(OutfitItem, OutfitItem.wardrobe_item_id == WardrobeItem.id)
+        .where(OutfitItem.outfit_id == outfit.id)
+        .order_by(outfit_category_order(), OutfitItem.id)
+    ))
+
+def outfit_data(db, outfit):
     query = (
         select(OutfitItem.wardrobe_item_id)
         .join(
@@ -51,7 +60,7 @@ def outfit_data(db, outfit):
             WardrobeItem.id == OutfitItem.wardrobe_item_id,
         )
         .where(OutfitItem.outfit_id == outfit.id)
-        .order_by(category_order, OutfitItem.id)
+        .order_by(outfit_category_order(), OutfitItem.id)
     )
 
     ids = list(db.scalars(query))
@@ -63,7 +72,15 @@ def outfit_data(db, outfit):
     }
 
 def result_data(result):
-    return {'generation_id': result.id, 'id': result.id, 'saved': result.saved, 'image_url': f'/api/try-on/{result.id}/image', 'wardrobe_item_id': result.wardrobe_item_id, 'catalog_item_id': result.catalog_item_id}
+    return {
+        'generation_id': result.id,
+        'id': result.id,
+        'saved': result.saved,
+        'image_url': f'/api/try-on/{result.id}/image',
+        'wardrobe_item_id': result.wardrobe_item_id,
+        'catalog_item_id': result.catalog_item_id,
+        'outfit_id': result.outfit_id,
+    }
 
 @router.post('/auth/register', status_code=201)
 def register(body: Register, db: Session = Depends(get_db)):
@@ -213,39 +230,90 @@ def warmup(user: User = Depends(current_user)):
             pass
     return Response(status_code=204)
 
+def ai_category(item):
+    if item.category == 'top':
+        return 'upper-body'
+    if item.category == 'bottom':
+        return 'lower-body'
+    raise HTTPException(422, 'Try-on supports tops and bottoms only')
+
+def generate_ai_image(client, person, garment, category):
+    if settings.ai_hf_zerogpu:
+        data = generate_zerogpu(client, person, garment, MAX_BYTES, category)
+    else:
+        with client.stream(
+            'POST',
+            settings.ai_service_url.rstrip('/') + '/generate',
+            files={
+                'person_image': ('person.jpg', person, 'image/jpeg'),
+                'garment_image': ('garment.jpg', garment, 'image/jpeg'),
+            },
+            data={'category': category},
+            headers=ai_headers(),
+        ) as response:
+            response.raise_for_status()
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > MAX_BYTES:
+                    raise HTTPException(502, 'AI returned an oversized image')
+
+    try:
+        return normalize_image(bytes(data))
+    except HTTPException:
+        raise HTTPException(502, 'AI returned an invalid image') from None
+
 @router.post('/try-on/generate', status_code=201)
-def generate(person_image: UploadFile = File(), wardrobe_item_id: int | None = Form(None), catalog_item_id: int | None = Form(None), db: Session = Depends(get_db), user: User = Depends(current_user)):
-    if (wardrobe_item_id is None) == (catalog_item_id is None):
-        raise HTTPException(422, 'Choose exactly one garment source')
-    item = owned(db, WardrobeItem, wardrobe_item_id, user) if wardrobe_item_id is not None else catalog_item(db, catalog_item_id)
-    if item.category != 'top':
-        raise HTTPException(422, 'MVP try-on supports tops only')
+def generate(
+    person_image: UploadFile = File(),
+    wardrobe_item_id: int | None = Form(None),
+    catalog_item_id: int | None = Form(None),
+    outfit_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    sources = [wardrobe_item_id, catalog_item_id, outfit_id]
+    if sum(value is not None for value in sources) != 1:
+        raise HTTPException(422, 'Choose exactly one garment or outfit source')
+
+    if outfit_id is not None:
+        outfit = owned(db, Outfit, outfit_id, user)
+        items = outfit_items(db, outfit)
+        tops = [item for item in items if item.category == 'top']
+        bottoms = [item for item in items if item.category == 'bottom']
+        if len(tops) != 1 or len(bottoms) != 1:
+            raise HTTPException(422, 'An outfit try-on requires exactly one top and one bottom')
+        stages = [
+            (tops[0], 'upper-body'),
+            (bottoms[0], 'lower-body'),
+        ]
+    else:
+        item = owned(db, WardrobeItem, wardrobe_item_id, user) if wardrobe_item_id is not None else catalog_item(db, catalog_item_id)
+        stages = [(item, ai_category(item))]
+
     person = normalize_image(person_image.file.read(MAX_BYTES + 1))
-    clothes = image_path(item.image_path).read_bytes()
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.ai_timeout_seconds, connect=5)) as client:
             if settings.ai_cold_start_timeout_seconds:
                 wait_for_ai(client)
-            if settings.ai_hf_zerogpu:
-                data = generate_zerogpu(client, person, clothes, MAX_BYTES)
-            else:
-                with client.stream('POST', settings.ai_service_url.rstrip('/') + '/generate', files={'person_image': ('person.jpg', person, 'image/jpeg'), 'garment_image': ('garment.jpg', clothes, 'image/jpeg')}, data={'category': 'upper-body'}, headers=ai_headers()) as response:
-                    response.raise_for_status()
-                    data = bytearray()
-                    for chunk in response.iter_bytes():
-                        data.extend(chunk)
-                        if len(data) > MAX_BYTES:
-                            raise HTTPException(502, 'AI returned an oversized image')
-        try:
-            normalized = normalize_image(bytes(data))
-        except HTTPException:
-            raise HTTPException(502, 'AI returned an invalid image')
+            normalized = person
+            for item, category in stages:
+                clothes = image_path(item.image_path).read_bytes()
+                normalized = generate_ai_image(client, normalized, clothes, category)
     except httpx.TimeoutException:
         raise HTTPException(504, 'AI service timed out; please retry')
     except httpx.HTTPError:
         raise HTTPException(503, 'AI service unavailable; please retry')
+
     path = store_image(normalized)
-    result = TryOnResult(user_id=user.id, wardrobe_item_id=wardrobe_item_id, catalog_item_id=catalog_item_id, result_image_path=path, saved=False)
+    result = TryOnResult(
+        user_id=user.id,
+        wardrobe_item_id=wardrobe_item_id,
+        catalog_item_id=catalog_item_id,
+        outfit_id=outfit_id,
+        result_image_path=path,
+        saved=False,
+    )
     db.add(result)
     try:
         db.commit()

@@ -69,7 +69,7 @@ def create_app(
     async def invalid_form(request: Request, error: RequestValidationError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content={"detail": "Provide person_image, garment_image, and category=upper-body."},
+            content={"detail": "Provide person_image, garment_image, and category=upper-body or lower-body."},
         )
 
     @app.get("/")
@@ -84,7 +84,7 @@ def create_app(
         request: Request,
         person_image: Annotated[UploadFile, File()],
         garment_image: Annotated[UploadFile, File()],
-        category: Annotated[Literal["upper-body"], Form()],
+        category: Annotated[Literal["upper-body", "lower-body"], Form()],
     ) -> Response:
         model = getattr(request.app.state, "generate", None)
         if model is None or not generation_slot.acquire(blocking=False):
@@ -93,7 +93,7 @@ def create_app(
         try:
             with decode_image(person_image) as person, decode_image(garment_image) as garment:
                 try:
-                    with model(person, garment) as result, BytesIO() as output:
+                    with model(person, garment, category) as result, BytesIO() as output:
                         result.save(output, format="JPEG", quality=90)
                         data = output.getvalue()
                 except Exception as error:

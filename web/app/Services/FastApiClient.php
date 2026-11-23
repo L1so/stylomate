@@ -164,18 +164,33 @@ class FastApiClient
     // ---- Virtual Try-On (Anggota 4) ----
 
     /**
-     * POST /try-on/generate multipart: person_image + tepat satu dari wardrobe_item_id / catalog_item_id.
+     * POST /try-on/generate multipart: person_image + tepat satu dari wardrobe_item_id / catalog_item_id / outfit_id.
      * Memakai timeout AI yang terpisah. Tidak ada retry otomatis: generate bisa saja selesai di server walau timeout.
      * Mengembalikan hasil FastAPI dengan image_url berupa proxy Laravel /media/try-on/{id}.
      */
-    public function generateTryOn(UploadedFile $personImage, ?int $wardrobeItemId, ?int $catalogItemId): array
+    public function generateTryOn(
+        UploadedFile $personImage,
+        ?int $wardrobeItemId,
+        ?int $catalogItemId,
+        ?int $outfitId = null,
+    ): array
     {
         $fields = array_filter(
-            ['wardrobe_item_id' => $wardrobeItemId, 'catalog_item_id' => $catalogItemId],
+            [
+                'wardrobe_item_id' => $wardrobeItemId,
+                'catalog_item_id' => $catalogItemId,
+                'outfit_id' => $outfitId,
+            ],
             fn ($value) => $value !== null
         );
 
-        $result = $this->upload('post', '/try-on/generate', $fields, ['person_image' => $personImage], $this->aiTimeout());
+        $result = $this->upload(
+            'post',
+            '/try-on/generate',
+            $fields,
+            ['person_image' => $personImage],
+            $this->aiTimeout($outfitId !== null),
+        );
         $id = $result['id'] ?? $result['generation_id'] ?? null;
 
         if (! is_int($id)) {
@@ -290,9 +305,9 @@ class FastApiClient
     }
 
     // Timeout khusus AI (detik); harus lebih besar dari AI_TIMEOUT_SECONDS di FastAPI (default 300)
-    protected function aiTimeout(): int
+    protected function aiTimeout(bool $fullOutfit = false): int
     {
-        return (int) config('services.fastapi.ai_timeout', 330);
+        return (int) config($fullOutfit ? 'services.fastapi.ai_outfit_timeout' : 'services.fastapi.ai_timeout', $fullOutfit ? 660 : 330);
     }
 
     protected function send(string $method, string $uri, array $data = []): array

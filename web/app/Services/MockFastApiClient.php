@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 // Aktif bila FASTAPI_USE_MOCK=true dan tidak pernah dipakai di production. Bentuk data mengikuti PRD bagian 10.
 class MockFastApiClient extends FastApiClient
 {
-    public const DEMO_EMAIL = 'demo@stylomate.test';
+    public const DEMO_EMAIL = 'demo@stylomate.id';
 
     public const DEMO_PASSWORD = 'password123';
 
@@ -129,17 +129,27 @@ class MockFastApiClient extends FastApiClient
             $this->requireImage($files, 'person_image');
             $wardrobeId = $fields['wardrobe_item_id'] ?? null;
             $catalogId = $fields['catalog_item_id'] ?? null;
+            $outfitId = $fields['outfit_id'] ?? null;
 
-            if (($wardrobeId === null) === ($catalogId === null)) {
-                throw ValidationException::withMessages(['wardrobe_item_id' => ['Pilih tepat satu pakaian.']]);
+            if (count(array_filter([$wardrobeId, $catalogId, $outfitId], fn ($value) => $value !== null)) !== 1) {
+                throw ValidationException::withMessages(['item' => ['Pilih tepat satu pakaian atau outfit.']]);
             }
 
-            $source = $wardrobeId !== null
-                ? $this->findById($this->userData('wardrobe'), (int) $wardrobeId)
-                : $this->findById(self::CATALOG, (int) $catalogId);
+            if ($outfitId !== null) {
+                $outfit = $this->findById($this->userData('outfits'), (int) $outfitId);
+                $wardrobe = collect($this->userData('wardrobe'))->keyBy('id');
+                $items = collect($outfit['wardrobe_item_ids'])->map(fn ($id) => $wardrobe[(int) $id] ?? null)->filter();
+                if ($items->where('category', 'top')->count() !== 1 || $items->where('category', 'bottom')->count() !== 1) {
+                    throw ValidationException::withMessages(['outfit_id' => ['Outfit harus berisi tepat satu atasan dan satu bawahan.']]);
+                }
+            } else {
+                $source = $wardrobeId !== null
+                    ? $this->findById($this->userData('wardrobe'), (int) $wardrobeId)
+                    : $this->findById(self::CATALOG, (int) $catalogId);
 
-            if ($source['category'] !== 'top') {
-                throw ValidationException::withMessages([$wardrobeId !== null ? 'wardrobe_item_id' : 'catalog_item_id' => ['Try On saat ini baru mendukung atasan.']]);
+                if (! in_array($source['category'], ['top', 'bottom'], true)) {
+                    throw ValidationException::withMessages([$wardrobeId !== null ? 'wardrobe_item_id' : 'catalog_item_id' => ['Try On hanya mendukung atasan dan bawahan.']]);
+                }
             }
 
             // Seperti backend asli: hasil dibuat dengan saved=false (preview) dan baru masuk riwayat setelah /try-on/save
@@ -152,6 +162,7 @@ class MockFastApiClient extends FastApiClient
                 'image_url' => '/api/try-on/'.$id.'/image',
                 'wardrobe_item_id' => $wardrobeId !== null ? (int) $wardrobeId : null,
                 'catalog_item_id' => $catalogId !== null ? (int) $catalogId : null,
+                'outfit_id' => $outfitId !== null ? (int) $outfitId : null,
                 'created_at' => now()->toIso8601ZuluString(),
             ];
             $this->storeUserData('try_ons', [...$tryOns, $result]);

@@ -158,6 +158,59 @@ def test_try_on_generate_save_and_access(monkeypatch):
     assert len(client.get('/api/try-on/history', headers=alice).json()['data']) == 1
     assert client.delete(f'/api/try-on/{generation}', headers=alice).status_code == 204
 
+def test_lower_body_and_full_outfit_run_expected_ai_stages(monkeypatch):
+    alice, bob = auth(), auth('bob@example.com')
+    top = add(alice, 'top')
+    bottom = add(alice, 'bottom')
+    outfit_response = client.post('/api/outfits', headers=alice, json={
+        'name': 'Full Look',
+        'wardrobe_item_ids': [top, bottom],
+    })
+    assert outfit_response.status_code == 201
+    outfit_id = outfit_response.json()['data']['id']
+
+    original = httpx.Client
+    categories = []
+
+    def respond(request):
+        body = request.content
+        categories.append('lower-body' if b'lower-body' in body else 'upper-body')
+        return httpx.Response(200, content=picture())
+
+    monkeypatch.setattr(
+        'app.routers.api.httpx.Client',
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
+    )
+
+    lower = client.post(
+        '/api/try-on/generate',
+        headers=alice,
+        data={'wardrobe_item_id': bottom},
+        files={'person_image': ('p.png', picture(), 'image/png')},
+    )
+    assert lower.status_code == 201, lower.text
+    assert lower.json()['data']['wardrobe_item_id'] == bottom
+
+    full = client.post(
+        '/api/try-on/generate',
+        headers=alice,
+        data={'outfit_id': outfit_id},
+        files={'person_image': ('p.png', picture(), 'image/png')},
+    )
+    assert full.status_code == 201, full.text
+    assert full.json()['data']['outfit_id'] == outfit_id
+    assert full.json()['data']['wardrobe_item_id'] is None
+    assert full.json()['data']['catalog_item_id'] is None
+    assert categories == ['lower-body', 'upper-body', 'lower-body']
+
+    foreign = client.post(
+        '/api/try-on/generate',
+        headers=bob,
+        data={'outfit_id': outfit_id},
+        files={'person_image': ('p.png', picture(), 'image/png')},
+    )
+    assert foreign.status_code == 404
+
 def test_ai_failure(monkeypatch):
     headers = auth()
     identity = add(headers)

@@ -51,11 +51,18 @@ class OutfitItem(Base):
 
 class TryOnResult(Base):
     __tablename__ = 'try_on_results'
-    __table_args__ = (CheckConstraint('(wardrobe_item_id IS NULL) <> (catalog_item_id IS NULL)', name='exactly_one_source'),)
+    __table_args__ = (CheckConstraint(
+        '(CASE WHEN wardrobe_item_id IS NULL THEN 0 ELSE 1 END + '
+        'CASE WHEN catalog_item_id IS NULL THEN 0 ELSE 1 END + '
+        'CASE WHEN outfit_id IS NULL THEN 0 ELSE 1 END) = 1',
+        name='exactly_one_source',
+    ),)
     id = Column(Integer, primary_key=True)
     user_id = Column(ForeignKey('users.id'), nullable=False, index=True)
     wardrobe_item_id = Column(ForeignKey('wardrobe_items.id'), nullable=True)
     catalog_item_id = Column(ForeignKey('catalog_items.id'), nullable=True)
+    # Intentionally no FK: a saved result remains valid after its source outfit is deleted.
+    outfit_id = Column(Integer, nullable=True)
     result_image_path = Column(String(255), nullable=False)
     saved = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=now, nullable=False)

@@ -16,6 +16,8 @@ from app import models
 def database(tmp_path, monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, 'storage_dir', str(tmp_path / 'images'))
+    # Unit tests default to the direct HTTP worker; individual ZeroGPU tests opt in explicitly.
+    monkeypatch.setattr(settings, 'ai_hf_zerogpu', False)
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     @event.listens_for(engine, 'connect')
     def foreign_keys(connection, record):

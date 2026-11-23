@@ -72,7 +72,9 @@ class ProfileTest extends TestCase
             ->assertOk()
             ->assertSee('2 pakaian')
             ->assertSee(route('media.wardrobe', ['id' => 11]), false)
-            ->assertSee(route('media.wardrobe', ['id' => 12]), false);
+            ->assertSee(route('media.wardrobe', ['id' => 12]), false)
+            ->assertSee(route('try-on.index', ['outfit_id' => 5]), false)
+            ->assertSee('Try On');
     }
 
     public function test_profile_without_created_at_hides_member_since(): void
@@ -96,6 +98,22 @@ class ProfileTest extends TestCase
             ->assertSee('Dari Catalog')
             ->assertSee('Unduh')
             ->assertSee(route('media.try-on', ['id' => 9, 'download' => 1]), false);
+    }
+
+    public function test_try_on_tab_labels_mix_and_match_source(): void
+    {
+        $this->fakeProfile(null, [[
+            'id' => 10,
+            'outfit_id' => 5,
+            'catalog_item_id' => null,
+            'wardrobe_item_id' => null,
+            'image_url' => '/api/try-on/10/image',
+        ]]);
+
+        $this->withSession(['api_token' => 'jwt-1'])
+            ->get('/profile?tab=try-on')
+            ->assertOk()
+            ->assertSee('Dari Mix &amp; Match', false);
     }
 
     public function test_unknown_tab_falls_back_to_outfit_tab(): void

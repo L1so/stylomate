@@ -49,7 +49,7 @@
                                     {{-- Outfit hanya membawa wardrobe_item_ids; gambar diambil lewat proxy /media/wardrobe/{id} --}}
                                     @forelse ($outfit['wardrobe_images'] ?? [] as $imageUrl)
                                         <div class="flex aspect-[4/3] items-center justify-center overflow-hidden">
-                                            <img src="{{ $imageUrl }}" alt="Pakaian {{ $loop->iteration }} dari outfit {{ $outfit['name'] ?? '' }}" width="300" height="225" loading="lazy" class="h-full w-full object-cover">
+                                            <img src="{{ $imageUrl }}" alt="Pakaian {{ $loop->iteration }} dari outfit {{ $outfit['name'] ?? '' }}" width="300" height="225" loading="lazy" class="h-full w-full bg-white/70 object-contain">
                                         </div>
                                     @empty
                                         <div class="flex aspect-[4/3] items-center justify-center">
@@ -64,7 +64,8 @@
                                         <span class="text-xs text-taupe">Disimpan <x-date :value="$outfit['created_at']" /></span>
                                     @endif
                                 </div>
-                                <div class="px-1 pb-1">
+                                <div class="flex flex-wrap gap-2 px-1 pb-1">
+                                    <x-button label="Try On" :href="route('try-on.index', ['outfit_id' => $outfit['id']])" type="button" />
                                     <x-confirm-delete :action="route('outfits.destroy', $outfit['id'])" message="Hapus outfit ini? Tindakan ini tidak bisa dibatalkan." />
                                 </div>
                             </li>
@@ -93,6 +94,8 @@
                                             Dari Catalog
                                         @elseif (!empty($tryOn['wardrobe_item_id']))
                                             Dari Wardrobe
+                                        @elseif (!empty($tryOn['outfit_id']))
+                                            Dari Mix &amp; Match
                                         @else
                                             Sumber tidak diketahui
                                         @endif

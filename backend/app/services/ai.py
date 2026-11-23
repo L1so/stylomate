@@ -53,14 +53,20 @@ def wait_for_ai(client: httpx.Client) -> None:
     raise HTTPException(503, "AI service is still starting; please retry shortly")
 
 
-def generate_zerogpu(client: httpx.Client, person: bytes, garment: bytes, max_bytes: int) -> bytes:
+def generate_zerogpu(
+    client: httpx.Client,
+    person: bytes,
+    garment: bytes,
+    max_bytes: int,
+    category: str,
+) -> bytes:
     endpoint = settings.ai_service_url.rstrip("/") + "/gradio_api/call/generate"
     headers = ai_headers()
     deadline = monotonic() + settings.ai_timeout_seconds
     response = client.post(endpoint, headers=headers, json={"data": [
         b64encode(person).decode("ascii"),
         b64encode(garment).decode("ascii"),
-        "upper-body",
+        category,
     ]})
     response.raise_for_status()
     try:

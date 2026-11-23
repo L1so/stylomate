@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-// Try-On: foto orang (JPEG/PNG, maks 10 MB) + tepat satu item. 'item' berbentuk "wardrobe:12" atau "catalog:3"
+// Try-On: foto orang + tepat satu sumber. 'item' berbentuk "wardrobe:12", "catalog:3", atau "outfit:5".
 class GenerateTryOnRequest extends FormRequest
 {
     public function authorize(): bool
@@ -15,7 +15,7 @@ class GenerateTryOnRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'item' => ['required', 'string', 'regex:/^(wardrobe|catalog):[1-9][0-9]{0,9}$/'],
+            'item' => ['required', 'string', 'regex:/^(wardrobe|catalog|outfit):[1-9][0-9]{0,9}$/'],
             'person_image' => ['required', 'file', 'mimetypes:image/jpeg,image/png', 'mimes:jpg,jpeg,png', 'max:10240'],
         ];
     }
@@ -23,7 +23,7 @@ class GenerateTryOnRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'item.required' => 'Pilih satu atasan dari Wardrobe atau Catalog.',
+            'item.required' => 'Pilih satu pakaian atau outfit untuk Try On.',
             'item.regex' => 'Pilihan pakaian tidak valid.',
             'item.string' => 'Pilihan pakaian tidak valid.',
             'person_image.required' => 'Foto kamu wajib diunggah.',
@@ -35,11 +35,15 @@ class GenerateTryOnRequest extends FormRequest
         ];
     }
 
-    /** @return array{0: ?int, 1: ?int} [wardrobe_item_id, catalog_item_id] */
+    /** @return array{0: ?int, 1: ?int, 2: ?int} [wardrobe_item_id, catalog_item_id, outfit_id] */
     public function selectedIds(): array
     {
         [$source, $id] = explode(':', $this->validated('item'));
 
-        return $source === 'wardrobe' ? [(int) $id, null] : [null, (int) $id];
+        return match ($source) {
+            'wardrobe' => [(int) $id, null, null],
+            'catalog' => [null, (int) $id, null],
+            default => [null, null, (int) $id],
+        };
     }
 }
